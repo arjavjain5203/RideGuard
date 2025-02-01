@@ -3,11 +3,22 @@ from sqlalchemy.orm import Session
 import random
 
 from app.auth import get_current_user, hash_password, require_rider_or_admin_access
+from app.core.redis_client import get_cached_json, set_cached_json
 from app.database import get_db
 from app.models import User, Earnings, TrustLog
 from app.schemas import UserCreate, UserResponse, ScoreResponse
+from app.config import settings
 
 router = APIRouter(prefix="/api/riders", tags=["Riders"])
+
+
+def rider_cache_key(rider_id: str) -> str:
+    return f"rider:{rider_id}"
+
+
+def cache_rider(user: User) -> None:
+    payload = UserResponse.model_validate(user).model_dump(mode="json")
+    set_cached_json(rider_cache_key(user.id), payload, settings.RIDER_CACHE_TTL_SECONDS)
 
 def create_rider_account(
     payload: UserCreate,
@@ -62,8 +73,10 @@ def create_rider_account(
 
     db.commit()
     db.refresh(user)
+    cache_rider(user)
     return user
 
+@router.post("", response_model=UserResponse, status_code=201, include_in_schema=False)
 @router.post("/", response_model=UserResponse, status_code=201)
 def register_rider(payload: UserCreate, db: Session = Depends(get_db)):
     """Register user, generate mock earnings and initial trust score."""
@@ -76,9 +89,13 @@ def get_rider(
     current_user: User = Depends(get_current_user),
 ):
     require_rider_or_admin_access(rider_id, current_user)
+    cached_user = get_cached_json(rider_cache_key(rider_id))
+    if cached_user:
+        return UserResponse(**cached_user)
     user = db.query(User).filter(User.id == rider_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Rider not found")
+    cache_rider(user)
     return user
 
 @router.get("/{rider_id}/score", response_model=ScoreResponse)
