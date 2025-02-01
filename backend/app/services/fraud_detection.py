@@ -1,7 +1,7 @@
 """Fraud Detection — Behavioral Risk Engine producing signal vectors for URTS."""
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -75,7 +75,7 @@ def run_fraud_checks(
         signals.flags.append("zone_mismatch")
 
     # 2. Duplicate claim detection — same rider + same trigger type within 6 hours
-    six_hours_ago = datetime.utcnow() - timedelta(hours=6)
+    six_hours_ago = datetime.now(UTC) - timedelta(hours=6)
     duplicate = (
         db.query(Claim)
         .filter(
@@ -91,7 +91,7 @@ def run_fraud_checks(
         signals.flags.append("duplicate_claim_window")
 
     # 3. Cluster detection — more than 5 claims in same zone in last 2 hours
-    two_hours_ago = datetime.utcnow() - timedelta(hours=2)
+    two_hours_ago = datetime.now(UTC) - timedelta(hours=2)
     zone_claims_count = (
         db.query(Claim)
         .join(Rider, Claim.user_id == Rider.id)
@@ -115,7 +115,7 @@ def run_fraud_checks(
         db.query(Claim)
         .filter(
             Claim.user_id == rider.id,
-            Claim.created_at >= datetime.utcnow() - timedelta(days=7),
+            Claim.created_at >= datetime.now(UTC) - timedelta(days=7),
         )
         .count()
     )
