@@ -254,6 +254,8 @@ class TriggerEvent(BaseModel):
     threshold: float
     zone: str
     severity: str
+    disruption_probability: Optional[float] = None
+    decision_reason: Optional[str] = None
 
 class TriggerCheckResponse(BaseModel):
     zone: str
@@ -261,6 +263,25 @@ class TriggerCheckResponse(BaseModel):
     claims_created: int
     payouts_created: int
     message: str
+
+
+class TaskEnqueueResponse(BaseModel):
+    task_id: str
+    task_name: str
+    status: str = "queued"
+    message: str
+    queued_at: datetime
+    entity_id: Optional[str] = None
+    executed_inline: bool = False
+    summary: dict = {}
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    result_summary: Optional[dict] = None
+    entity_id: Optional[str] = None
+    error: Optional[str] = None
 
 class TriggerStatusResponse(BaseModel):
     id: str
@@ -271,6 +292,8 @@ class TriggerStatusResponse(BaseModel):
     start_time: datetime
     end_time: Optional[datetime]
     duration_hours: float
+    disruption_probability: Optional[float] = None
+    decision_reason: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -287,6 +310,10 @@ class ClaimResponse(BaseModel):
     disruption_hours: Optional[float] = 0
     loss_amount: float
     effective_urts: Optional[int] = 0
+    effective_urts_at_event: Optional[int] = None
+    event_adjustment: Optional[float] = 0.0
+    anomaly_score: Optional[float] = 0.0
+    fraud_flag: bool = False
     status: str
     created_at: datetime
     behavioral_risk_signals: dict = {}
