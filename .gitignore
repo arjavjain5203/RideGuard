@@ -1,5 +1,7 @@
 # Environment Variables
 .env
+.env.*
+!.env.example
 .env.local
 .env.development.local
 .env.test.local
@@ -35,8 +37,10 @@ env/
 *.sqlite
 *.sqlite3
 *.db
+*.db-shm
+*.db-wal
 rideguard.db
- rideguard.db*
+rideguard.db*
 
 # Node / Frontend
 node_modules/
