@@ -1,8 +1,8 @@
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -10,6 +10,10 @@ from app.database import Base
 
 def generate_uuid():
     return str(uuid.uuid4())
+
+
+def utc_now():
+    return datetime.now(UTC)
 
 
 class User(Base):
@@ -28,14 +32,15 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     base_urts = Column(Integer, default=70)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     earnings = relationship("Earnings", back_populates="user", uselist=False)
     policies = relationship("Policy", back_populates="user")
     claims = relationship("Claim", back_populates="user")
     payouts = relationship("Payout", back_populates="user")
     trust_logs = relationship("TrustLog", back_populates="user")
+    urts_history = relationship("UrtsHistory", back_populates="user")
 
 
 class Earnings(Base):
@@ -60,9 +65,9 @@ class Policy(Base):
     zone_multiplier = Column(Float, default=1.0)
     risk_score = Column(Float, default=0.5)
     status = Column(String(32), default="active")
-    valid_from = Column(DateTime(timezone=True), default=datetime.utcnow)
-    valid_until = Column(DateTime(timezone=True), default=lambda: datetime.utcnow() + timedelta(days=7))
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    valid_from = Column(DateTime(timezone=True), default=utc_now)
+    valid_until = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC) + timedelta(days=7))
+    created_at = Column(DateTime(timezone=True), default=utc_now)
 
     user = relationship("User", back_populates="policies")
     claims = relationship("Claim", back_populates="policy")
@@ -91,16 +96,20 @@ class TriggerRecord(Base):
     value = Column(Float, nullable=False)
     zone = Column(String(64), nullable=False)
     status = Column(String(32), default="ACTIVE")
-    start_time = Column(DateTime(timezone=True), default=datetime.utcnow)
+    start_time = Column(DateTime(timezone=True), default=utc_now)
     end_time = Column(DateTime(timezone=True), nullable=True)
     duration_hours = Column(Float, default=0.0)
-    triggered_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    disruption_probability = Column(Float, nullable=True)
+    environment_inputs = Column(Text, default="{}")
+    decision_reason = Column(String(64), nullable=True)
+    triggered_at = Column(DateTime(timezone=True), default=utc_now)
 
     claims = relationship("Claim", back_populates="trigger")
 
 
 class Claim(Base):
     __tablename__ = "claims"
+    __table_args__ = (UniqueConstraint("user_id", "trigger_id", name="uq_claim_user_trigger"),)
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     policy_id = Column(String(36), ForeignKey("policies.id", ondelete="SET NULL"), nullable=True)
@@ -114,13 +123,18 @@ class Claim(Base):
     status = Column(String(32), default="pending")
     disruption_hours = Column(Float, default=0.0)
     effective_urts = Column(Integer, default=0)
+    effective_urts_at_event = Column(Integer, nullable=True)
+    event_adjustment = Column(Float, default=0.0)
+    anomaly_score = Column(Float, default=0.0)
+    fraud_flag = Column(Boolean, default=False)
     behavioral_signals = Column(Text, default="{}")
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
 
     user = relationship("User", back_populates="claims")
     policy = relationship("Policy", back_populates="claims")
     trigger = relationship("TriggerRecord", back_populates="claims")
     payout = relationship("Payout", back_populates="claim", uselist=False)
+    urts_history = relationship("UrtsHistory", back_populates="claim", uselist=False)
 
     @property
     def rider_id(self):
@@ -136,6 +150,7 @@ class Claim(Base):
 
 class Payout(Base):
     __tablename__ = "payouts"
+    __table_args__ = (UniqueConstraint("claim_id", name="uq_payout_claim"),)
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     claim_id = Column(String(36), ForeignKey("claims.id", ondelete="CASCADE"))
@@ -145,7 +160,7 @@ class Payout(Base):
     transaction_id = Column(String(64), unique=True, nullable=True)
     status = Column(String(32), default="completed")
     paid_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
 
     claim = relationship("Claim", back_populates="payout")
     user = relationship("User", back_populates="payouts")
@@ -166,9 +181,25 @@ class TrustLog(Base):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
     change = Column(Integer, nullable=False)
     reason = Column(String(256), nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
 
     user = relationship("User", back_populates="trust_logs")
+
+
+class UrtsHistory(Base):
+    __tablename__ = "urts_history"
+    __table_args__ = (UniqueConstraint("claim_id", name="uq_urts_history_claim"),)
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    claim_id = Column(String(36), ForeignKey("claims.id", ondelete="CASCADE"), nullable=True)
+    base_urts = Column(Integer, nullable=False)
+    event_adjustment = Column(Float, nullable=False)
+    effective_urts = Column(Integer, nullable=False)
+    timestamp = Column(DateTime(timezone=True), default=utc_now)
+
+    user = relationship("User", back_populates="urts_history")
+    claim = relationship("Claim", back_populates="urts_history")
 
 
 class CoverageModule(Base):
@@ -201,4 +232,4 @@ class AuditLog(Base):
     entity_id = Column(String(36), nullable=False)
     action = Column(String(64), nullable=False)
     details = Column(Text, default="{}")
-    timestamp = Column(DateTime(timezone=True), default=datetime.utcnow)
+    timestamp = Column(DateTime(timezone=True), default=utc_now)
