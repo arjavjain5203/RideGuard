@@ -17,10 +17,11 @@ from app.models import (
     Claim,
     Payout,
     TrustLog,
+    UrtsHistory,
     CoverageModule,
     Zone,
 )
-from app.routers import admin, auth, claims, llm, mock_external, payouts, policies, riders, triggers, zomato
+from app.routers import admin, auth, claims, fraud, llm, ml, mock_external, payouts, policies, riders, tasks, triggers, zomato
 from app.config import settings
 
 ZONE_DISPLAY_NAMES = {
@@ -188,6 +189,7 @@ def ensure_runtime_schema():
             "role": "ALTER TABLE users ADD COLUMN role VARCHAR(16) DEFAULT 'rider'",
             "hourly_income": "ALTER TABLE users ADD COLUMN hourly_income FLOAT",
             "is_active": "ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1",
+            "base_urts": "ALTER TABLE users ADD COLUMN base_urts INTEGER DEFAULT 70",
             "last_login_at": "ALTER TABLE users ADD COLUMN last_login_at DATETIME",
             "updated_at": "ALTER TABLE users ADD COLUMN updated_at DATETIME",
         },
@@ -200,12 +202,28 @@ def ensure_runtime_schema():
             "valid_from": "ALTER TABLE policies ADD COLUMN valid_from DATETIME",
             "valid_until": "ALTER TABLE policies ADD COLUMN valid_until DATETIME",
         },
+        "triggers": {
+            "status": "ALTER TABLE triggers ADD COLUMN status VARCHAR(32) DEFAULT 'ACTIVE'",
+            "start_time": "ALTER TABLE triggers ADD COLUMN start_time DATETIME",
+            "end_time": "ALTER TABLE triggers ADD COLUMN end_time DATETIME",
+            "duration_hours": "ALTER TABLE triggers ADD COLUMN duration_hours FLOAT DEFAULT 0",
+            "disruption_probability": "ALTER TABLE triggers ADD COLUMN disruption_probability FLOAT",
+            "environment_inputs": "ALTER TABLE triggers ADD COLUMN environment_inputs TEXT DEFAULT '{}'",
+            "decision_reason": "ALTER TABLE triggers ADD COLUMN decision_reason VARCHAR(64)",
+            "triggered_at": "ALTER TABLE triggers ADD COLUMN triggered_at DATETIME",
+        },
         "claims": {
             "policy_id": "ALTER TABLE claims ADD COLUMN policy_id VARCHAR(36)",
+            "trigger_id": "ALTER TABLE claims ADD COLUMN trigger_id VARCHAR(36)",
             "trigger_type": "ALTER TABLE claims ADD COLUMN trigger_type VARCHAR(32)",
             "trigger_value": "ALTER TABLE claims ADD COLUMN trigger_value FLOAT",
             "disruption_start": "ALTER TABLE claims ADD COLUMN disruption_start DATETIME",
             "disruption_end": "ALTER TABLE claims ADD COLUMN disruption_end DATETIME",
+            "disruption_hours": "ALTER TABLE claims ADD COLUMN disruption_hours FLOAT DEFAULT 0",
+            "effective_urts_at_event": "ALTER TABLE claims ADD COLUMN effective_urts_at_event INTEGER",
+            "event_adjustment": "ALTER TABLE claims ADD COLUMN event_adjustment FLOAT DEFAULT 0",
+            "anomaly_score": "ALTER TABLE claims ADD COLUMN anomaly_score FLOAT DEFAULT 0",
+            "fraud_flag": "ALTER TABLE claims ADD COLUMN fraud_flag BOOLEAN DEFAULT 0",
         },
         "payouts": {
             "paid_at": "ALTER TABLE payouts ADD COLUMN paid_at DATETIME",
@@ -256,6 +274,7 @@ def ensure_runtime_schema():
                     )
                 ),
                 is_active = COALESCE(is_active, 1),
+                base_urts = COALESCE(base_urts, 70),
                 updated_at = COALESCE(updated_at, created_at)
                 """
             )
@@ -275,16 +294,55 @@ def ensure_runtime_schema():
         conn.execute(
             text(
                 """
+                UPDATE triggers
+                SET status = COALESCE(status, 'ACTIVE'),
+                    start_time = COALESCE(start_time, triggered_at),
+                    duration_hours = COALESCE(duration_hours, 0),
+                    environment_inputs = COALESCE(environment_inputs, '{}'),
+                    triggered_at = COALESCE(triggered_at, start_time)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
                 UPDATE claims
                 SET trigger_type = COALESCE(trigger_type, (SELECT type FROM triggers WHERE triggers.id = claims.trigger_id)),
                     trigger_value = COALESCE(trigger_value, (SELECT value FROM triggers WHERE triggers.id = claims.trigger_id)),
                     disruption_start = COALESCE(disruption_start, (SELECT start_time FROM triggers WHERE triggers.id = claims.trigger_id), created_at),
                     disruption_end = COALESCE(disruption_end, (SELECT end_time FROM triggers WHERE triggers.id = claims.trigger_id)),
+                    disruption_hours = COALESCE(disruption_hours, 0),
+                    effective_urts_at_event = COALESCE(effective_urts_at_event, effective_urts),
+                    event_adjustment = COALESCE(event_adjustment, 0),
+                    anomaly_score = COALESCE(anomaly_score, 0),
+                    fraud_flag = COALESCE(fraud_flag, 0),
                     policy_id = COALESCE(policy_id, (SELECT id FROM policies WHERE policies.user_id = claims.user_id AND policies.status = 'active' ORDER BY created_at DESC LIMIT 1))
                 """
             )
         )
         conn.execute(text("UPDATE payouts SET paid_at = COALESCE(paid_at, created_at)"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS urts_history (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    claim_id VARCHAR(36) UNIQUE,
+                    base_urts INTEGER NOT NULL,
+                    event_adjustment FLOAT NOT NULL,
+                    effective_urts INTEGER NOT NULL,
+                    timestamp DATETIME
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_user_trigger_unique ON claims(user_id, trigger_id) WHERE trigger_id IS NOT NULL"
+            )
+        )
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_payouts_claim_unique ON payouts(claim_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_urts_history_user ON urts_history(user_id)"))
 
 
 from app.services.trigger_monitor import start_monitor_loop
@@ -316,6 +374,7 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+app.router.redirect_slashes = False
 
 # CORS — allow frontend dev server
 app.add_middleware(
@@ -335,6 +394,9 @@ app.include_router(triggers.router)
 app.include_router(payouts.router)
 app.include_router(claims.router)
 app.include_router(mock_external.router)
+app.include_router(ml.router)
+app.include_router(fraud.router)
+app.include_router(tasks.router)
 app.include_router(llm.router)
 app.include_router(admin.router)
 
