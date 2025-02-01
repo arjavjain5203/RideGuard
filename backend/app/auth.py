@@ -18,6 +18,14 @@ TOKEN_ALGORITHM = "HS256"
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def _auth_error(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
@@ -79,7 +87,7 @@ def decode_access_token(token: str) -> dict:
     try:
         encoded_header, encoded_payload, encoded_signature = token.split(".")
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token") from exc
+        raise _auth_error("Invalid access token") from exc
 
     signing_input = f"{encoded_header}.{encoded_payload}"
     expected_signature = hmac.new(
@@ -89,18 +97,18 @@ def decode_access_token(token: str) -> dict:
     ).digest()
 
     if not hmac.compare_digest(_b64url_encode(expected_signature), encoded_signature):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
+        raise _auth_error("Invalid access token")
 
     try:
         payload = json.loads(_b64url_decode(encoded_payload).decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token") from exc
+        raise _auth_error("Invalid access token") from exc
 
     if payload.get("iss") != settings.TOKEN_ISSUER:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token issuer")
+        raise _auth_error("Invalid token issuer")
 
     if int(payload.get("exp", 0)) <= int(time.time()):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Access token expired")
+        raise _auth_error("Access token expired")
 
     return payload
 
@@ -125,16 +133,16 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> User:
     if credentials is None or credentials.scheme.lower() != "bearer":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+        raise _auth_error("Authentication required: missing bearer token")
 
     payload = decode_access_token(credentials.credentials)
     user_id = payload.get("sub")
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
+        raise _auth_error("Invalid access token")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not found")
+        raise _auth_error("Account not found")
     return user
 
 
