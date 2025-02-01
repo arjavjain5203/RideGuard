@@ -1,8 +1,11 @@
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
 
 from app.auth import get_current_user, require_rider_or_admin_access
+from app.config import settings
+from app.core.redis_client import get_cached_json, set_cached_json
 from app.database import get_db
 from app.models import User, Policy, CoverageModule
 from app.schemas import (
@@ -17,16 +20,26 @@ import json
 router = APIRouter(prefix="/api/policies", tags=["Policies"])
 
 
+def zone_risk_cache_key(zone: str) -> str:
+    return f"zone:{zone.strip().lower().replace(' ', '_')}:risk"
+
+
 def get_live_zone_risk_score(zone: str) -> float:
+    cached = get_cached_json(zone_risk_cache_key(zone))
+    if isinstance(cached, dict) and "risk_score" in cached:
+        return float(cached["risk_score"])
+
     weather = get_weather(zone)
     aqi_snapshot = get_aqi(zone)
     traffic = get_traffic(zone)
-    return calculate_zone_risk_score(
+    score = calculate_zone_risk_score(
         rainfall_mm_hr=weather.get("rainfall", 0.0),
         temperature_c=weather.get("temperature", 30.0),
         aqi=aqi_snapshot.get("aqi", 50.0),
         traffic_speed_kmh=traffic.get("avg_speed", 30.0),
     )
+    set_cached_json(zone_risk_cache_key(zone), {"risk_score": score}, settings.ZONE_RISK_CACHE_TTL_SECONDS)
+    return score
 
 
 def validate_modules(db: Session, module_names: list[str]) -> None:
@@ -74,6 +87,7 @@ def calculate_rider_premium(
         **result,
     )
 
+@router.post("", response_model=PolicyResponse, status_code=201, include_in_schema=False)
 @router.post("/", response_model=PolicyResponse, status_code=201)
 def create_policy(
     payload: PolicyCreate,
@@ -107,8 +121,8 @@ def create_policy(
         zone_multiplier=premium_data["zone_multiplier"],
         risk_score=premium_data["risk_score"],
         status="active",
-        valid_from=datetime.utcnow(),
-        valid_until=datetime.utcnow() + timedelta(days=7),
+        valid_from=datetime.now(UTC),
+        valid_until=datetime.now(UTC) + timedelta(days=7),
     )
     db.add(policy)
     db.commit()
