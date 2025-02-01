@@ -3,6 +3,17 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://rideguard:rideguard@localhost:5432/rideguard"
+    REDIS_URL: str = "redis://localhost:6379/0"
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
+    CELERY_TASK_ALWAYS_EAGER: bool = False
+    CELERY_TASK_RESULT_EXPIRES: int = 3600
+    CELERY_TASK_TIME_LIMIT_SECONDS: int = 300
+    CELERY_TASK_SOFT_TIME_LIMIT_SECONDS: int = 240
+    REDIS_LOCK_TTL_SECONDS: int = 120
+    RIDER_CACHE_TTL_SECONDS: int = 300
+    ZONE_RISK_CACHE_TTL_SECONDS: int = 300
+    ACTIVE_TRIGGER_CACHE_TTL_SECONDS: int = 180
     APP_NAME: str = "RideGuard API"
     DEBUG: bool = True
     CORS_ORIGINS: str = "http://localhost:3000"
