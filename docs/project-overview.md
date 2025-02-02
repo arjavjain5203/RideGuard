@@ -56,7 +56,7 @@ The implemented rider journey is:
 - External weather, AQI, and traffic integrations are mocked.
 - Payouts are simulated writes to the `payouts` table, not real bank or UPI transfers.
 - There is no real billing, premium collection, or policy renewal scheduler.
-- The background trigger monitor runs inside the API process rather than a separate worker.
+- The background trigger monitor runs inside the API process and queues heavier work through Celery.
 - The frontend stores the access token in `localStorage`.
 - Frontend route protection is client-side only; backend authorization is still enforced server-side.
 - Backend automated tests exist, but there are no frontend automated tests.
@@ -64,7 +64,7 @@ The implemented rider journey is:
 ## Important Mismatches To Know
 
 - The root README describes a broader and more ambitious platform than the current code implements.
-- The checked-in `.env.example` uses keys such as `JWT_SECRET` and `JWT_EXPIRY`, while the backend currently reads `SECRET_KEY` and `ACCESS_TOKEN_EXPIRE_MINUTES`.
+- Env samples are split between the root overview and service-specific backend/frontend examples.
 - The backend supports more configured zones than the registration UI currently exposes.
 - The database schema uses a unified `users` table for riders and admins; older docs refer to a separate `riders` table.
 
@@ -74,6 +74,6 @@ The implemented rider journey is:
 | --- | --- |
 | Frontend | Next.js 16, React 19, Tailwind CSS 4, Axios |
 | Backend | FastAPI 0.115, SQLAlchemy 2, Pydantic 2 |
-| Data store | PostgreSQL 15 or SQLite |
+| Data store | PostgreSQL 15 or SQLite, with Redis for cache, locks, and Celery |
 | Auth | Custom PBKDF2 password hashing plus HMAC-signed JWT-style bearer tokens |
-| Runtime | Docker Compose for `db`, `backend`, and `frontend`, with optional local frontend dev server |
+| Runtime | Docker Compose for `postgres`, `redis`, `backend`, `worker`, and `frontend`, with optional local frontend dev server |
