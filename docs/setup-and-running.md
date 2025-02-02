@@ -11,7 +11,7 @@ This document describes the current working setup paths for the codebase. Prefer
 
 ## Recommended Local Path
 
-The current repo is easiest to run fully in Docker with PostgreSQL, the backend API, and the frontend web app under one Compose stack.
+The current repo is easiest to run fully in Docker with PostgreSQL, Redis, the backend API, a Celery worker, and the frontend web app under one Compose stack.
 
 ### 1. Start the full stack
 
@@ -24,7 +24,9 @@ docker compose up --build
 What this does:
 
 - starts PostgreSQL 15 on `localhost:5432`
+- starts Redis 7 on `localhost:6379`
 - starts the FastAPI backend on `http://localhost:8000`
+- starts the Celery worker for queued fraud, payout, trigger, and insight jobs
 - starts the Next.js frontend on `http://localhost:3000`
 - initializes the database from `db/migrations/001_init.sql` on first boot
 - seeds coverage modules, zones, demo accounts, and demo earnings on API startup
@@ -42,7 +44,7 @@ What this does:
 If you want live frontend edits without rebuilding the web image, run only the database and API in Docker and keep Next.js local.
 
 ```bash
-docker compose up --build db backend
+docker compose up --build postgres redis backend worker
 
 cd frontend
 npm install
@@ -77,6 +79,17 @@ Notes:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | `postgresql://rideguard:rideguard@localhost:5432/rideguard` | SQLAlchemy connection string |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection used for cache and locks |
+| `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Celery broker URL |
+| `CELERY_RESULT_BACKEND` | `redis://localhost:6379/1` | Celery result backend URL |
+| `CELERY_TASK_ALWAYS_EAGER` | `False` | executes queued tasks inline when true |
+| `CELERY_TASK_RESULT_EXPIRES` | `3600` | task result TTL in seconds |
+| `CELERY_TASK_TIME_LIMIT_SECONDS` | `300` | hard Celery task timeout |
+| `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` | `240` | soft Celery task timeout |
+| `REDIS_LOCK_TTL_SECONDS` | `120` | Redis lock TTL for queued work |
+| `RIDER_CACHE_TTL_SECONDS` | `300` | rider cache TTL in seconds |
+| `ZONE_RISK_CACHE_TTL_SECONDS` | `300` | zone risk cache TTL in seconds |
+| `ACTIVE_TRIGGER_CACHE_TTL_SECONDS` | `180` | active trigger cache TTL in seconds |
 | `APP_NAME` | `RideGuard API` | application display name |
 | `DEBUG` | `True` | debug-mode style flag |
 | `CORS_ORIGINS` | `http://localhost:3000` | comma-separated CORS allow list |
@@ -90,16 +103,19 @@ Notes:
 | Variable | Purpose |
 | --- | --- |
 | `NEXT_PUBLIC_API_URL` | frontend API base URL, defaults to `http://localhost:8000/api` |
+| `INTERNAL_API_URL` | server-side API URL used by Next.js rewrites, defaults to `http://127.0.0.1:8000/api` |
 | `GEMINI_API_KEY` | optional key for live LLM responses in `llm_service.py` |
+| `DISRUPTION_MODEL_PATH` / `DISRUPTION_SCALER_PATH` | optional overrides for disruption model artifacts |
+| `FRAUD_MODEL_PATH` / `FRAUD_SCALER_PATH` / `FRAUD_SCORE_SCALER_PATH` | optional overrides for fraud model artifacts |
 
-## Important Notes About `.env.example`
+## Environment Samples
 
-The checked-in `.env.example` is only partially aligned with the running code.
+The checked-in env samples are aligned with the current local setup:
 
-- `JWT_SECRET` is not currently read by the backend. Use `SECRET_KEY`.
-- `JWT_EXPIRY` is not currently read by the backend. Use `ACCESS_TOKEN_EXPIRE_MINUTES`.
-- `UPI_SIMULATION_MODE` is documented but not consumed by the backend code.
-- The weather, AQI, and traffic API keys are future-facing; the current app uses mock providers.
+- root `.env.example` summarizes the Compose/local defaults.
+- `backend/.env.example` contains backend, Redis, Celery, auth, cache, AI, and model settings.
+- `frontend/.env.example` contains browser-facing and server-side API URLs.
+- Real `.env` files are local-only and should not be committed.
 
 ## Ports
 
@@ -108,6 +124,7 @@ The checked-in `.env.example` is only partially aligned with the running code.
 | Frontend | `3000` | Docker Compose web app or local Next.js dev server |
 | Backend | `8000` | FastAPI app |
 | PostgreSQL | `5432` | Docker Compose database |
+| Redis | `6379` | Docker Compose cache, lock, and Celery broker |
 
 ## Common Developer Flows
 
