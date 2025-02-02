@@ -11,4 +11,127 @@
 body {
   background-color: #f9fafb;
   color: #111827;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* Dark Mode Overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: #030712;
+    color: #f3f4f6;
+  }
+
+  /* Backgrounds */
+  .bg-white {
+    background-color: #111827 !important;
+  }
+  .bg-gray-50 {
+    background-color: #1f2937 !important;
+  }
+  .bg-gray-100 {
+    background-color: #374151 !important;
+  }
+  .bg-gray-50\/50 {
+    background-color: rgba(31, 41, 55, 0.5) !important;
+  }
+  
+  /* Text */
+  .text-gray-900 {
+    color: #f9fafb !important;
+  }
+  .text-gray-800 {
+    color: #f3f4f6 !important;
+  }
+  .text-gray-700 {
+    color: #e5e7eb !important;
+  }
+  .text-gray-600 {
+    color: #d1d5db !important;
+  }
+  .text-gray-500 {
+    color: #9ca3af !important;
+  }
+  .text-gray-400 {
+    color: #6b7280 !important;
+  }
+
+  /* Borders */
+  .border-gray-100 {
+    border-color: #1f2937 !important;
+  }
+  .border-gray-200 {
+    border-color: #374151 !important;
+  }
+  .border-gray-300 {
+    border-color: #4b5563 !important;
+  }
+
+  /* Shadows */
+  .shadow-sm {
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.5) !important;
+  }
+  .shadow-md {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.6) !important;
+  }
+  .shadow-lg {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.7) !important;
+  }
+  .shadow-xl {
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.8) !important;
+  }
+
+  /* Gradients (Hero section) */
+  .from-green-50 {
+    --tw-gradient-from: #064e3b !important;
+    --tw-gradient-to: rgba(6, 78, 59, 0) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+  }
+  .via-white {
+    --tw-gradient-to: rgba(17, 24, 39, 0) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), #111827, var(--tw-gradient-to) !important;
+  }
+  .to-green-50 {
+    --tw-gradient-to: #064e3b !important;
+  }
+
+  /* Specific Component Fixes */
+  .bg-green-50 {
+    background-color: rgba(34, 197, 94, 0.1) !important;
+  }
+  .bg-green-100 {
+    background-color: rgba(34, 197, 94, 0.2) !important;
+  }
+  .bg-blue-100 {
+    background-color: rgba(59, 130, 246, 0.2) !important;
+  }
+  .bg-emerald-100 {
+    background-color: rgba(16, 185, 129, 0.2) !important;
+  }
+  
+  /* Sidebar/Nav active states */
+  .text-green-700 {
+    color: #4ade80 !important;
+  }
+  .border-green-100 {
+    border-color: rgba(34, 197, 94, 0.2) !important;
+  }
+
+  /* Inputs */
+  input, select, textarea {
+    background-color: #1f2937 !important;
+    color: #f9fafb !important;
+    border-color: #374151 !important;
+  }
+  input::placeholder {
+    color: #6b7280 !important;
+  }
+  
+  /* Link hover states */
+  .hover\:text-green-600:hover {
+    color: #4ade80 !important;
+  }
 }
