@@ -93,6 +93,9 @@ CREATE TABLE triggers (
     start_time     TIMESTAMPTZ DEFAULT NOW(),
     end_time       TIMESTAMPTZ,
     duration_hours NUMERIC(4,2) DEFAULT 0,
+    disruption_probability NUMERIC(5,4),
+    environment_inputs TEXT DEFAULT '{}',
+    decision_reason VARCHAR(64),
     triggered_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -112,6 +115,10 @@ CREATE TABLE claims (
     status             VARCHAR(16) DEFAULT 'pending' CHECK (status IN ('pending','paid','rejected','capped')),
     disruption_hours   NUMERIC(4,2),
     effective_urts     INT CHECK (effective_urts >= 0 AND effective_urts <= 100),
+    effective_urts_at_event INT CHECK (effective_urts_at_event >= 0 AND effective_urts_at_event <= 100),
+    event_adjustment   NUMERIC(5,2) DEFAULT 0,
+    anomaly_score      NUMERIC(5,4) DEFAULT 0,
+    fraud_flag         BOOLEAN DEFAULT FALSE,
     behavioral_signals TEXT DEFAULT '{}',
     created_at         TIMESTAMPTZ DEFAULT NOW()
 );
@@ -121,7 +128,7 @@ CREATE TABLE claims (
 -- ============================================================
 CREATE TABLE payouts (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    claim_id        UUID NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+    claim_id        UUID NOT NULL UNIQUE REFERENCES claims(id) ON DELETE CASCADE,
     user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     amount          NUMERIC(10,2) NOT NULL,
     urts_factor     NUMERIC(3,2) NOT NULL,
@@ -140,6 +147,19 @@ CREATE TABLE trust_logs (
     change     INT NOT NULL,
     reason     VARCHAR(256) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- URTS HISTORY
+-- ============================================================
+CREATE TABLE urts_history (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    claim_id         UUID UNIQUE REFERENCES claims(id) ON DELETE CASCADE,
+    base_urts        INT NOT NULL CHECK (base_urts >= 0 AND base_urts <= 100),
+    event_adjustment NUMERIC(5,2) NOT NULL,
+    effective_urts   INT NOT NULL CHECK (effective_urts >= 0 AND effective_urts <= 100),
+    timestamp        TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================================
@@ -163,7 +183,9 @@ CREATE INDEX idx_policies_user      ON policies(user_id);
 CREATE INDEX idx_claims_user        ON claims(user_id);
 CREATE INDEX idx_claims_policy      ON claims(policy_id);
 CREATE INDEX idx_claims_trigger     ON claims(trigger_id);
+CREATE UNIQUE INDEX idx_claims_user_trigger_unique ON claims(user_id, trigger_id) WHERE trigger_id IS NOT NULL;
 CREATE INDEX idx_payouts_user       ON payouts(user_id);
 CREATE INDEX idx_payouts_claim      ON payouts(claim_id);
 CREATE INDEX idx_trust_logs_user    ON trust_logs(user_id);
 CREATE INDEX idx_triggers_zone      ON triggers(zone);
+CREATE INDEX idx_urts_history_user  ON urts_history(user_id);
