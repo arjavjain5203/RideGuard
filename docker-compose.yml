@@ -1,61 +1,103 @@
+version: "3.9"
+
 services:
-  db:
-    image: postgres:15
-    container_name: rideguard-db
+  postgres:
+    image: postgres:15-alpine
     environment:
+      POSTGRES_DB: rideguard
       POSTGRES_USER: rideguard
       POSTGRES_PASSWORD: rideguard
-      POSTGRES_DB: rideguard
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rideguard -d rideguard"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
-    container_name: rideguard-api
-    ports:
-      - "8000:8000"
+    working_dir: /app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+      - ./models:/app/models
     environment:
-      DATABASE_URL: postgresql://rideguard:rideguard@db:5432/rideguard
+      DATABASE_URL: postgresql://rideguard:rideguard@postgres:5432/rideguard
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
       CORS_ORIGINS: http://localhost:3000
       SECRET_KEY: rideguard-dev-secret-change-me
       TOKEN_ISSUER: rideguard-api
       ACCESS_TOKEN_EXPIRE_MINUTES: "480"
       ENABLE_TRIGGER_MONITOR: "true"
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/').read()"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 15s
+      retries: 10
+      start_period: 20s
+
+  worker:
+    build:
+      context: ./backend
+    working_dir: /app
+    command: celery -A app.core.celery_app:celery_app worker --loglevel=info
+    volumes:
+      - ./backend:/app
+      - ./models:/app/models
+    environment:
+      DATABASE_URL: postgresql://rideguard:rideguard@postgres:5432/rideguard
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      SECRET_KEY: rideguard-dev-secret-change-me
+      TOKEN_ISSUER: rideguard-api
+      ACCESS_TOKEN_EXPIRE_MINUTES: "480"
+      ENABLE_TRIGGER_MONITOR: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: http://localhost:8000/api
-    container_name: rideguard-web
+        INTERNAL_API_URL: http://backend:8000/api
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000/api
+      INTERNAL_API_URL: http://backend:8000/api
       PORT: "3000"
-    ports:
-      - "3000:3000"
     depends_on:
       backend:
         condition: service_healthy
+    ports:
+      - "3000:3000"
 
 volumes:
-  pgdata:
+  postgres_data:
