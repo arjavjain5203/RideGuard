@@ -6,15 +6,47 @@ import {
   clearAccessToken,
   fetchCurrentUser,
   getAccessToken,
+  isUnauthorizedError,
   setAccessToken,
 } from '@/services/api';
 
 const AuthContext = createContext(null);
 
 const ADMIN_PATH_PREFIX = '/admin';
+const AUTH_USER_STORAGE_KEY = 'rideguard_auth_user';
 
 function getDefaultRedirectPath(role) {
   return role === 'admin' ? '/admin' : '/dashboard';
+}
+
+function getStoredUser() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const rawUser = window.localStorage.getItem(AUTH_USER_STORAGE_KEY);
+  if (!rawUser) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawUser);
+  } catch {
+    window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+    return null;
+  }
+}
+
+function setStoredUser(user) {
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+  }
+}
+
+function clearStoredUser() {
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+  }
 }
 
 export function AuthProvider({ children }) {
@@ -28,6 +60,7 @@ export function AuthProvider({ children }) {
 
     const checkSession = async () => {
       const token = getAccessToken();
+      const cachedUser = getStoredUser();
       if (!token) {
         if (mounted) {
           setUser(null);
@@ -36,14 +69,24 @@ export function AuthProvider({ children }) {
         return;
       }
 
+      if (mounted && cachedUser) {
+        setUser(cachedUser);
+      }
+
       try {
         const profile = await fetchCurrentUser();
         if (mounted) {
           setUser(profile);
         }
+        setStoredUser(profile);
       } catch (err) {
-        clearAccessToken();
-        if (mounted) {
+        if (isUnauthorizedError(err)) {
+          clearAccessToken();
+          clearStoredUser();
+          if (mounted) {
+            setUser(null);
+          }
+        } else if (mounted && !cachedUser) {
           setUser(null);
         }
       } finally {
@@ -57,6 +100,7 @@ export function AuthProvider({ children }) {
 
     const handleUnauthorized = () => {
       clearAccessToken();
+      clearStoredUser();
       setUser(null);
       router.push(pathname?.startsWith(ADMIN_PATH_PREFIX) ? '/admin/login' : '/login');
     };
@@ -70,12 +114,14 @@ export function AuthProvider({ children }) {
 
   const login = useCallback((authResponse) => {
     setAccessToken(authResponse.access_token);
+    setStoredUser(authResponse.user);
     setUser(authResponse.user);
   }, []);
 
   const logout = useCallback(({ redirectTo } = {}) => {
     const currentRole = user?.role;
     clearAccessToken();
+    clearStoredUser();
     setUser(null);
     router.push(redirectTo || (currentRole === 'admin' ? '/admin/login' : '/login'));
   }, [router, user?.role]);
