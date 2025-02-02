@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/context/ToastContext";
-import { fetchPolicies, fetchScore, fetchEarnings, triggerEvent } from "@/services/api";
+import { fetchClaims, fetchEarnings, fetchPayouts, fetchPolicies, fetchScore, triggerEvent, waitForTaskCompletion } from "@/services/api";
 import Sidebar from "@/components/Sidebar";
 import Card from "@/components/Card";
 import Loader from "@/components/Loader";
@@ -63,42 +63,55 @@ export default function Dashboard() {
   const simulateTrigger = async () => {
     setTriggerLoading(true);
     try {
-      // Simulate heavy rain in rider's zone
       const payload = {
         zone: data.earnings?.zone || "Koramangala",
-        rainfall_mm_hr: 18.0, // Above 15mm threshold
+        rainfall_mm_hr: 18.0,
         temperature_c: 28.0,
         aqi: 80.0,
         traffic_speed_kmh: 15.0,
       };
-      
-      const response = await triggerEvent(payload);
-      
-      if (response.claims_created > 0) {
+
+      const queuedTask = await triggerEvent(payload);
+      toast.success("Trigger submitted. RideGuard is processing your claim check.");
+
+      const startedAt = new Date();
+      const taskStatus = await waitForTaskCompletion(queuedTask.task_id);
+      const [claims, payouts] = await Promise.all([
+        fetchClaims(riderId).catch(() => []),
+        fetchPayouts(riderId).catch(() => []),
+        loadData(),
+      ]);
+
+      const taskSummary = taskStatus?.result_summary || {};
+      const claimsCreated = Number(taskSummary.claims_created || 0);
+      const payoutsCreated = Number(taskSummary.payouts_created || 0);
+      const newClaimAppeared = claims.some((claim) => new Date(claim.created_at) >= startedAt);
+
+      if (claimsCreated > 0 || newClaimAppeared) {
+        const destination = payoutsCreated > 0 ? "/payout" : "/claims";
         toast.custom(({ dismiss }) => (
           <div className="bg-white px-6 py-4 shadow-xl rounded-xl border-l-4 border-green-500 flex items-start gap-4 max-w-md">
             <FaCheckCircle className="text-green-500 text-2xl mt-0.5" />
             <div>
               <h3 className="font-bold text-gray-900">
-                {response.payouts_created > 0 ? "Claim and Payout Completed!" : "Claim Auto-Generated!"}
+                {payoutsCreated > 0 ? "Claim and Payout Completed!" : "Claim Auto-Generated!"}
               </h3>
               <p className="text-sm text-gray-600 mt-1">
-                Heavy rain detected in {payload.zone}. {response.payouts_created > 0
-                  ? `${response.payouts_created} payout(s) were completed automatically.`
+                Heavy rain detected in {payload.zone}. {payoutsCreated > 0
+                  ? `${payoutsCreated} payout(s) were completed automatically.`
                   : "A claim was created, but no payout was completed automatically."}
               </p>
               <button 
-                onClick={() => { dismiss(); router.push("/payout"); }}
+                onClick={() => { dismiss(); router.push(destination); }}
                 className="mt-3 text-sm font-semibold text-green-600 hover:text-green-800"
               >
-                View Payout &rarr;
+                {payoutsCreated > 0 ? "View Payout" : "View Claims"} &rarr;
               </button>
             </div>
           </div>
         ), { duration: 6000 });
-        
-        // Reload data to reflect score updates
-        loadData();
+      } else if (taskStatus?.status === "timeout") {
+        toast.success("Trigger is still processing in the background. Refresh claims in a few seconds.");
       } else {
         toast.error("No claims created. Rider may not be eligible or missing required coverage.");
       }
