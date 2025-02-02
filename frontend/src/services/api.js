@@ -2,6 +2,8 @@ import axios from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 export const ACCESS_TOKEN_STORAGE_KEY = 'rideguard_access_token';
+const TASK_POLL_INTERVAL_MS = 1500;
+const TASK_POLL_TIMEOUT_MS = 20000;
 
 const apiClient = axios.create({
   baseURL: API_URL,
@@ -29,8 +31,24 @@ export const clearAccessToken = () => {
   }
 };
 
+export const hasAccessToken = () => Boolean(getAccessToken());
+
+export const isUnauthorizedError = (error) => {
+  const status = error?.response?.status;
+  return status === 401 || status === 403;
+};
+
+const requireAccessToken = () => {
+  if (!hasAccessToken()) {
+    const error = new Error('Authentication required. Please sign in again.');
+    error.code = 'AUTH_TOKEN_MISSING';
+    throw error;
+  }
+};
+
 apiClient.interceptors.request.use((config) => {
   const token = getAccessToken();
+  config.headers = config.headers ?? {};
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -46,6 +64,7 @@ apiClient.interceptors.response.use(
       getAccessToken() &&
       error.config?.url !== '/auth/login'
     ) {
+      console.error('Auth failure detected');
       clearAccessToken();
       window.dispatchEvent(new CustomEvent('rideguard:unauthorized'));
     }
@@ -114,7 +133,7 @@ export const extractApiFieldErrors = (error) => {
 };
 
 export const registerUser = async (userData) => {
-  const response = await apiClient.post('/riders/', userData);
+  const response = await apiClient.post('/riders', userData);
   return response.data;
 };
 
@@ -172,35 +191,73 @@ export const updatePolicy = async (policyId, modules) => {
 };
 
 export const fetchPolicies = async (riderId) => {
+  requireAccessToken();
   const response = await apiClient.get(`/policies/rider/${riderId}`);
   return response.data;
 };
 
 export const triggerEvent = async (triggerData) => {
+  requireAccessToken();
   const response = await apiClient.post('/triggers/check', triggerData);
   return response.data;
 };
 
 export const fetchPayouts = async (riderId) => {
+  requireAccessToken();
   const response = await apiClient.get(`/payouts/rider/${riderId}`);
   return response.data;
 };
 
 export const fetchClaims = async (riderId) => {
+  requireAccessToken();
   const response = await apiClient.get(`/claims/rider/${riderId}`);
   return response.data.claims;
 };
 
 export const getClaimDetails = async (claimId) => {
+  requireAccessToken();
   const response = await apiClient.get(`/claims/${claimId}`);
   return response.data;
 };
 
 export const processPayout = async (claimId) => {
+  requireAccessToken();
   const response = await apiClient.post('/payouts/process', {
     claim_id: claimId,
   });
   return response.data;
+};
+
+export const fetchTaskStatus = async (taskId) => {
+  requireAccessToken();
+  const response = await apiClient.get(`/tasks/${taskId}`);
+  return response.data;
+};
+
+export const waitForTaskCompletion = async (
+  taskId,
+  {
+    intervalMs = TASK_POLL_INTERVAL_MS,
+    timeoutMs = TASK_POLL_TIMEOUT_MS,
+  } = {}
+) => {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    const task = await fetchTaskStatus(taskId);
+    const status = String(task?.status || '').toLowerCase();
+    if (['success', 'completed', 'failed', 'failure', 'missing', 'skipped', 'duplicate'].includes(status)) {
+      return task;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
+  }
+
+  return {
+    task_id: taskId,
+    status: 'timeout',
+    result_summary: null,
+    error: null,
+  };
 };
 
 // --- LLM ENDPOINTS ---
