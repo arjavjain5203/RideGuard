@@ -22,8 +22,8 @@
 - [How It Works](#how-it-works)
 - [Parametric Triggers](#parametric-triggers)
 - [AI & ML Components](#ai--ml-components)
-- [Adversarial Defense & Anti-Spoofing Strategy](#adversarial-defense--anti-spoofing-strategy)
-- [Trust Score System](#trust-score-system)
+- [Behavioral Risk & Fraud Detection Engine](#behavioral-risk--fraud-detection-engine)
+- [Unified Risk & Trust Score (URTS)](#unified-risk--trust-score-urts)
 - [Payout Model](#payout-model)
 - [Activity-Based Premium](#activity-based-premium)
 - [System Architecture](#system-architecture)
@@ -126,24 +126,23 @@ Polling frequency: **every 15 minutes** per active zone.
 **Step 7 — Trigger Detection**
 When a parametric threshold is breached (see [Parametric Triggers](#parametric-triggers)), the system logs a disruption event, begins measuring duration, and flags the affected zone.
 
-**Step 8 — Fraud Detection & Trust Scoring**
-Before payout, the Fraud Detection Engine runs checks:
-- **GPS validation** — Is the rider's registered zone consistent with the disruption zone?
-- **Duplicate claim detection** — Has a payout already been issued for this event window?
-- **Weather cross-validation** — Do multiple data sources confirm the disruption?
+**Step 8 — Unified Risk & Trust Scoring (URTS)**
+Before payout, the Behavioral Risk & Fraud Engine evaluates real-time signals and historical behavior.
 
-The rider's **trust score** determines the payout percentage (see [Trust Score System](#trust-score-system)).
+The rider's **URTS** directly determines the payout eligibility and multiplier (see [Unified Risk & Trust Score](#unified-risk--trust-score-urts)).
 
 **Step 9 — Instant Payout**
 
-```
-Payout = hourly_income × disruption_hours × trust_multiplier
+```text
+Payout = hourly_income × disruption_hours × (URTS_factor)
 ```
 
 Disbursed via simulated UPI to the rider's linked account. The rider receives a notification with a payout breakdown.
 
 **Step 10 — Audit Trail**
-Every event — trigger detection, fraud check result, payout — is logged immutably for regulatory compliance and dispute resolution.
+Every event — trigger detection, behavioral signal evaluation, URTS computation, payout — is logged immutably for regulatory compliance and dispute resolution.
+
+> **End-to-end payout decision latency: < 2 minutes** after trigger resolution.
 
 ---
 
@@ -201,116 +200,102 @@ else:
 
 This creates a **fair pricing model** — riders in historically safer zones pay less, incentivizing broad adoption.
 
-### 3. Fraud Detection Engine
+## Behavioral Risk & Fraud Detection Engine
 
-A two-layer approach:
+RideGuard operates a single Behavioral Risk & Fraud Detection Engine. There is no separate "fraud score" or "trust score" — all signals feed into the Unified Risk & Trust Score (URTS) as a structured signal vector. This eliminates dual decision pipelines and ensures a single, consistent evaluation path.
 
-**Layer 1 — Rule-Based Checks**
-| Check | Logic |
-|---|---|
-| GPS mismatch | Rider's registered zone ≠ disruption zone |
-| Duplicate claim | Same rider + same event window already paid |
-| Weather mismatch | Rider's zone data doesn't match the trigger conditions |
-| Temporal anomaly | Claim timestamp falls outside rider's active hours |
+### Pipeline Architecture
 
-**Layer 2 — Anomaly Detection**
-Statistical outlier detection on claim frequency and patterns:
-- Riders with claim rates >2σ above the zone mean are flagged for review.
-- Payout amounts deviating significantly from zone averages trigger alerts.
+**Input Layer:**
+- GPS coordinate stream (latitude, longitude, timestamp)
+- Delivery activity logs via Zomato API (orders accepted, in-progress, completed)
+- Device signals (accelerometer, device fingerprint, OS signature)
+- Network/IP geolocation data
 
-Fraud flags **reduce the trust score** rather than blocking payouts outright — this avoids penalizing legitimate high-risk-zone riders.
+**Processing Layer:**
+1. **Rule-Based Validation** — GPS continuity checks, impossible-speed detection, duplicate event filtering
+2. **Anomaly Detection** — Statistical outlier analysis on claim frequency, location variance vs. 30-day baseline
+3. **Clustering Analysis** — Zone-level rider density evaluation to identify coordinated multi-rider spoofing
+
+**Output:**
+A structured **signal vector** containing per-signal risk indicators, each with a normalized severity (0.0–1.0). This vector is passed directly to the URTS Engine for score computation.
 
 ---
 
-## Adversarial Defense & Anti-Spoofing Strategy
+## Unified Risk & Trust Score (URTS)
 
-GPS spoofing has proven that localized coordination can drain insurance pools if relying on single-signal verification. RideGuard defends against this by shifting to **multi-signal verification**.
+RideGuard utilizes a single, dynamic Unified Risk & Trust Score (URTS) ranging from 0 to 100. The URTS is the **sole decision variable** for all payout operations — no other scoring mechanism exists in the system.
 
-### 1. Differentiating Genuine vs Spoofed Behavior
+### Two-Layer Score Architecture
 
-GPS data alone is easily manipulated. However, faking the physical realities of gig work is significantly harder. RideGuard distinguishes users based on the following dynamics:
+The URTS operates as two complementary layers:
 
-- **Movement continuity**: Genuine riders do not teleport across zones; spoofers often exhibit instantaneous location hops.
-- **Realistic speed patterns**: Real movement involves stop-and-go traffic; spoofed movement is often statically fixed or mathematically linear.
-- **Delivery activity correlation**: Sourced via platform APIs, genuine riders in an active state are either in-transit with an order or waiting strategically. Spoofers show no underlying delivery footprint.
-- **Behavior consistency over time**: Historic zone fidelity matters.
+**Base URTS** — Long-term rider reputation (0–100)
+Reflects historical behavior: claim validity record, consistency over time, past behavioral risk flags. Persists across events and decays toward baseline when inactive.
 
-Simply put:
-**Real rider** = consistent movement + delivery activity  
-**Fraudster** = inconsistent movement + no activity + abnormal patterns  
-
-### 2. Multi-Signal Data Validation Layer
-
-Beyond basic GPS coordinates, RideGuard evaluates the following distinct data signals:
-
-- **Delivery activity logs**: Synchronization with Zomato/Swiggy APIs (orders accepted, in-progress, completed).
-- **Timestamp correlation**: Detecting synthetic timestamps vs. network time.
-- **Movement trajectory and speed**: Validating physics (e.g., impossible acceleration).
-- **Accelerometer / motion data**: Checking for micro-movements indicative of a device on a moving two-wheeler.
-- **Device fingerprint**: Identifying emulators, clone apps, or mismatched OS signatures.
-- **Network/IP location validation**: Correlating cellular tower IP locations against reported GPS coordinates.
-- **Historical behavior patterns**: Comparing current location variance against the rider's 30-day baseline.
-- **Zone-level rider density (cluster detection)**: Detecting unnatural congregations of riders in high-risk zones.
-
-**Cluster Detection Mechanism**:
-A critical layer is identifying synchronized fraud rings. If an anomalous density of riders appears in the exact same high-risk zone simultaneously with identical behavioral signatures, the **Cluster Detection System** flags this as coordinated fraud, temporarily freezing localized auto-payouts for manual review.
-
-### 3. Fraud Scoring & Fair UX Handling
-
-RideGuard assigns a real-time Fraud Score to every triggered event based on behavioral intelligence:
+**Event Adjustment** — Real-time per-event penalty (0 to −50)
+Computed by the Behavioral Risk Engine's signal vector at the moment a parametric trigger fires. Applies only to the current event and does not permanently alter Base URTS unless confirmed by post-event audit.
 
 ```text
-Fraud Score =
-+40 GPS jump anomaly
-+30 activity mismatch
-+20 device inconsistency
-+25 cluster anomaly
+Effective URTS = Base URTS + Event Adjustment
 ```
 
-**Threshold Handling:**
-- **Score < 50** → Normal claim (Instant payout approved)
-- **Score 50–80** → Suspicious (Delayed payout requiring progressive verification)
-- **Score 80+** → High Risk (Flagged for manual review or immediate rejection)
+The **Effective URTS** is what determines the payout decision for each individual event.
 
-**Fair UX Principle:**
-*RideGuard ensures fraud prevention without penalizing genuine workers by using progressive verification instead of binary rejection.*
+> **Example:** A rider with Base URTS 80 triggers a rain event. The Behavioral Risk Engine detects a GPS anomaly (−15) and a minor activity mismatch (−10). Effective URTS = 80 + (−25) = **55** → Partial Payout (70%).
+> The rider's Base URTS is not permanently reduced unless post-event review confirms the anomaly was genuine fraud.
 
-If anomalies are detected, the system does not issue an immediate rejection. Instead, it temporarily delays the payout to collect secondary verification (e.g., final delivery correlation at end-of-day) or processes a partial payout while investigating. This guarantees that riders caught in edge-case data glitches are not left without a safety net.
+### Signal Fusion Model
 
----
+The Event Adjustment is computed as a weighted sum of normalized behavioral signals:
 
-## Trust Score System
+```text
+Event Adjustment = Σ (weight_i × signal_severity_i)
+```
 
+| Signal | Weight | Severity Range | Rationale |
+|---|---|---|---|
+| GPS anomaly / teleportation | **0.30** | 0.0–1.0 | Strongest single indicator of location spoofing |
+| Cluster detection | **0.30** | 0.0–1.0 | Coordinated fraud is the highest-damage attack vector |
+| Delivery activity mismatch | **0.25** | 0.0–1.0 | No delivery footprint strongly correlates with fabricated presence |
+| Device inconsistency | **0.15** | 0.0–1.0 | Emulators and cloned devices indicate technical spoofing |
 
-Every rider has a dynamic trust score that determines their payout eligibility. This replaces binary "approved/denied" decisions with a gradient system that rewards honest behavior.
+Maximum possible Event Adjustment: **−50 points** (all signals at severity 1.0 with max penalty mapping).
 
-### Score Mechanics
+### Base URTS Adjustments
+
+The Base URTS evolves over time based on confirmed outcomes:
 
 | Event | Impact |
 |---|---|
-| Initial registration | Score = **75** |
-| Valid claim paid | **+2 points** |
+| Valid claim paid (post-audit confirmed) | **+2 points** |
 | No claims in a billing cycle (good standing) | **+1 point** |
-| GPS mismatch detected | **−10 points** |
+| Confirmed anomaly (post-event review) | **−5 to −20 points** (severity-dependent) |
 | Duplicate claim attempt | **−15 points** |
-| Weather data inconsistency | **−8 points** |
-| Flagged by anomaly detection | **−5 points** |
-| Score cap | **0 – 100** |
+| Confirmed cluster fraud participation | **−20 points** |
+
+### URTS Decay Logic
+
+To prevent permanently depressed scores from one-time incidents, the Base URTS gradually decays toward the neutral baseline of **70**:
+
+```text
+Decay rate: +1 point per anomaly-free week, capped at 70 (neutral baseline)
+```
+
+- Riders above 70 are not decayed downward — earned trust is preserved.
+- Riders below 70 recover at +1/week if no new anomalies occur.
+- Riders at or above 70 with continued valid claims continue to increase normally.
 
 ### Payout Tiers
 
-| Trust Score | Tier | Payout Multiplier | Behavior |
+The **Effective URTS** directly governs the outcome of each parametric event:
+
+| Effective URTS | Tier | URTS Factor | Action |
 |---|---|---|---|
-| **80 – 100** | ✅ Trusted | 100% of calculated payout | Full payout, no delay |
-| **60 – 79** | ⚠️ Standard | 90% of calculated payout | Minor deduction, normal processing |
-| **40 – 59** | 🔶 Under Review | 75% of calculated payout | Reduced payout, manual review optional |
-| **< 40** | 🚫 Flagged | Payout **held** | Account flagged for investigation |
-
-### Design Philosophy
-
-- **Graduated penalties** prevent one-time errors from destroying a rider's coverage.
-- **Positive reinforcement** (valid claims and good standing increase score) incentivizes honest participation.
-- **No permanent blacklisting** — riders can recover their score through consistent legitimate behavior.
+| **80 – 100** | ✅ Trusted | **1.0** | Instant Payout (100%) — No delay |
+| **60 – 79** | ⚠️ Standard | **0.9** | Slight Delay (90%) — Standard progressive processing |
+| **40 – 59** | 🔶 Under Review | **0.7** | Partial Payout (70%) + Manual review queued |
+| **< 40** | 🚫 Flagged | **0.0** | Payout Held — Account flagged for investigation |
 
 ---
 
@@ -330,14 +315,18 @@ RideGuard uses a **parametric payout model**, which is fundamentally different f
 
 ### Payout Formula
 
-```
-Payout = hourly_income × disruption_hours × trust_multiplier
+```text
+Effective URTS = Base URTS + Event Adjustment
+Payout = hourly_income × disruption_hours × URTS_factor(Effective URTS)
 ```
 
 Where:
 - `hourly_income` = rider's calculated average hourly earnings from Zomato API data
 - `disruption_hours` = measured duration of the trigger event (capped at 8 hours/event)
-- `trust_multiplier` = percentage based on trust score tier (1.0, 0.9, 0.75, or 0.0)
+- `Effective URTS` = Base URTS + real-time Event Adjustment from Behavioral Risk Engine
+- `URTS_factor` = payout multiplier derived from Effective URTS tier (1.0, 0.9, 0.7, or 0.0)
+
+> **System latency**: End-to-end payout decision completes in **< 2 minutes** after trigger resolution.
 
 ### Payout Cap
 
@@ -381,7 +370,7 @@ RideGuard does not charge riders who aren't actively working. The premium adjust
 | Weekly earnings | ₹8,400 |
 | Active hours/week | 42 |
 | Hourly income | ₹200/hr |
-| Trust score | 82 (Trusted tier) |
+| URTS | 82 (Trusted tier) |
 | Active days this week | 6 |
 | Subscribed modules | Rain Shield, Flood Guard |
 
@@ -401,20 +390,24 @@ Total weekly premium = ₹56.93 ≈ ₹57
 
 ### Trigger & Payout
 
-```
-Trigger:       Rain ≥ 15 mm/hr sustained for 2+ hours  ✅ MET
-Observed:      18 mm/hr for 3 hours
-Disruption:    3 hours
+```text
+Trigger:          Rain ≥ 15 mm/hr sustained for 2+ hours   ✅ MET
+Observed:         18 mm/hr for 3 hours
+Disruption:       3 hours
 
-Payout = hourly_income × disruption_hours × trust_multiplier
+Base URTS:        82
+Event Adjustment: 0 (all behavioral signals clean)
+Effective URTS:   82 → Trusted tier → URTS_factor = 1.0
+
+Payout = hourly_income × disruption_hours × URTS_factor
        = ₹200 × 3 × 1.0
        = ₹600
 
-Fraud check:   GPS confirmed in Koramangala  ✅
-                No duplicate claims           ✅
-                Weather data cross-validated  ✅
+Behavioral signals validated — no URTS penalty applied  ✅
+GPS continuity confirmed in Koramangala                 ✅
+No duplicate events in window                           ✅
 
-Final payout:  ₹600 via UPI
+Final payout:  ₹600 via UPI (< 2 min after trigger resolution)
 ```
 
 **Priya pays ₹57/week and receives ₹600 for a single rain event.** The payout covers ~70% of her lost afternoon income, delivered within minutes of the disruption ending.
@@ -440,18 +433,26 @@ Final payout:  ₹600 via UPI
           ┌────────────────────┼────────────────────┐
           ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│   RISK ENGINE   │  │    TRIGGER      │  │     FRAUD       │
-│                 │  │    MONITOR      │  │    DETECTION     │
+│   RISK ENGINE   │  │    TRIGGER      │  │ BEHAVIORAL RISK │
+│                 │  │    MONITOR      │  │ & FRAUD ENGINE  │
 │ • Risk scoring  │  │                 │  │                 │
 │ • Premium calc  │  │ • API polling   │  │ • GPS check     │
 │ • Zone analysis │  │ • Threshold     │  │ • Anomaly det.  │
-│                 │  │   evaluation    │  │ • Trust scoring │
-│                 │  │                 │  │ • Behav. Anal.  │
+│                 │  │   evaluation    │  │ • Behav. Anal.  │
 │                 │  │                 │  │ • Cluster det.  │
 └────────┬────────┘  └────────┬────────┘  └────────┬────────┘
-
          │                    │                    │
-         └────────────────────┼────────────────────┘
+         └────────────────────┼─────────┬──────────┘
+                              ▼         ▼
+                    ┌─────────────────────────┐
+                    │ UNIFIED SCORING (URTS)  │
+                    │                         │
+                    │ • Aggregates real-time  │
+                    │   + historical signals  │
+                    │ • Outputs single        │
+                    │   decision score        │
+                    └─────────┬───────────────┘
+                              │
                               ▼
                     ┌─────────────────┐
                     │ PAYMENT SERVICE │
@@ -478,10 +479,8 @@ Final payout:  ₹600 via UPI
 | **API Gateway** | Node.js / FastAPI | Authentication, routing, rate limiting, request validation |
 | **Risk Engine** | Python (scikit-learn) | Real-time risk scoring, premium calculation, zone risk profiling |
 | **Trigger Monitor** | Python (async workers) | Polls external APIs every 15 min, evaluates thresholds, emits disruption events |
-| **Fraud Detection** | Python | Rule-based checks + statistical anomaly detection, trust score management |
-| **Behavior Analysis Engine** | Python | Validates movement continuity, speed patterns, and delivery activity correlation |
-| **Fraud Scoring Module** | Python | Aggregates localized and behavioral signals into a unified deception probability score |
-| **Cluster Detection System** | Python | Identifies coordinated multi-rider spoofing within identical zones simultaneously |
+| **Behavioral Risk & Fraud Engine** | Python | Validates movement continuity, speed patterns, cluster detection, and delivery correlation |
+| **Unified Scoring Engine (URTS)** | Python | Aggregates real-time behavioral signals + historical tracking into a single decision score (0-100) |
 | **Payment Service** | Node.js | Payout computation, UPI simulation, receipt generation |
 | **Audit Logger** | Python | Append-only event log for every system action — compliance and dispute resolution |
 | **Database** | PostgreSQL | Persistent storage for all entities |
@@ -498,18 +497,26 @@ Final payout:  ₹600 via UPI
 
 ### Data Flow
 
+```text
+External APIs ──(poll)──▶ Trigger Monitor ──(event)──▶ Behavioral Risk Engine
+                                                                 │
+Zomato API ──(activity + earnings)──────────────────────────────▶│
+                                                                 │
+                                                          signal vector
+                                                                 │
+                                                                 ▼
+                                                     URTS Engine (Effective URTS)
+                                                                 │
+                                                                 ▼
+                                                    Payment Service ──▶ UPI
+                                                                 │
+                                                                 ▼
+                                                          Audit Logger
+
+Risk Engine ──(zone risk score)──▶ Premium Calculation (decoupled from payout path)
 ```
-External APIs ──(poll)──▶ Trigger Monitor ──(event)──▶ Fraud Engine
-                                                          │
-                                                          ▼
-Zomato API ──(earnings)──▶ Risk Engine ──(premium)──▶ Policy DB
-                                                          │
-                                                          ▼
-                                              Payment Service ──▶ UPI
-                                                          │
-                                                          ▼
-                                                    Audit Logger
-```
+
+> **Key architectural constraint**: The Risk Engine feeds **premium pricing only**. It does not participate in the payout decision path. The URTS Engine is the sole aggregation point for all payout decisions.
 
 ---
 
@@ -517,10 +524,10 @@ Zomato API ──(earnings)──▶ Risk Engine ──(premium)──▶ Policy
 
 ### Entity-Relationship Overview
 
-```
+```text
 riders ──< policies ──< claims ──< payouts
   │                        │
-  └──< trust_scores        └──> audit_logs
+  └──< rider_scores        └──> audit_logs
 ```
 
 ### Table Definitions
@@ -561,8 +568,8 @@ riders ──< policies ──< claims ──< payouts
 | `disruption_start` | TIMESTAMP | When disruption began |
 | `disruption_end` | TIMESTAMP | When disruption ended |
 | `disruption_hours` | DECIMAL | Calculated disruption duration |
-| `fraud_check_status` | ENUM | `passed`, `flagged`, `failed` |
-| `fraud_flags` | JSONB | Details of any fraud indicators |
+| `effective_urts_at_event` | INT | Effective URTS at time of event evaluation |
+| `behavioral_risk_signals` | JSONB | Structured signal vector from Behavioral Risk Engine |
 | `created_at` | TIMESTAMP | Claim creation timestamp |
 
 #### `payouts`
@@ -571,26 +578,25 @@ riders ──< policies ──< claims ──< payouts
 | `id` | UUID (PK) | Unique payout identifier |
 | `claim_id` | UUID (FK) | Reference to claim |
 | `amount` | DECIMAL | Payout amount in ₹ |
-| `trust_multiplier` | DECIMAL | Applied trust multiplier |
+| `urts_factor` | DECIMAL | Applied URTS multiplier |
 | `upi_transaction_id` | VARCHAR | UPI transaction reference |
 | `status` | ENUM | `pending`, `completed`, `failed` |
 | `paid_at` | TIMESTAMP | Payout completion timestamp |
 
-#### `trust_scores`
+#### `rider_scores`
 | Column | Type | Description |
 |---|---|---|
-| `id` | UUID (PK) | Record identifier |
-| `rider_id` | UUID (FK) | Reference to rider |
-| `score` | INT | Current trust score (0–100) |
-| `last_change_reason` | VARCHAR | Reason for last score change |
-| `last_change_delta` | INT | Points added/removed |
-| `updated_at` | TIMESTAMP | Last update timestamp |
+| `rider_id` | UUID (PK, FK) | Reference to rider |
+| `urts_score` | INT | Unified Risk & Trust Score (0–100) |
+| `last_updated` | TIMESTAMP | Last update timestamp |
+| `last_event` | VARCHAR | Reason for the most recent score change |
+| `score_history` | JSONB | Historical log of URTS adjustments |
 
 #### `audit_logs`
 | Column | Type | Description |
 |---|---|---|
 | `id` | UUID (PK) | Log entry identifier |
-| `entity_type` | VARCHAR | `claim`, `payout`, `policy`, `trust` |
+| `entity_type` | VARCHAR | `claim`, `payout`, `policy`, `rider_score` |
 | `entity_id` | UUID | Reference to the entity |
 | `action` | VARCHAR | Action performed |
 | `details` | JSONB | Full event payload |
@@ -610,15 +616,17 @@ The admin panel provides operational visibility for underwriters and platform ma
 | **Weekly Premium Collected** | Total premium revenue for the current week | Daily |
 | **Claims Triggered** | Number of parametric claims triggered this week | Real-time |
 | **Payouts Disbursed** | Total ₹ disbursed in payouts this week | Real-time |
-| **Fraud Alerts** | Number of claims flagged by fraud detection | Real-time |
-| **Average Trust Score** | Mean trust score across all active riders | Daily |
+| **Behavioral Risk Alerts** | Claims with Effective URTS below 60 at event time | Real-time |
+| **High-Risk Events** | Events where Event Adjustment exceeded −25 | Real-time |
+| **URTS Drop Events** | Riders whose Base URTS dropped by ≥10 in the past week | Daily |
+| **Average URTS** | Mean Base URTS across all active riders | Daily |
 | **Loss Ratio** | Payouts / Premiums — key profitability indicator | Weekly |
 | **Zone Risk Heatmap** | Visual risk distribution across Bangalore zones | Every 15 min |
 
 ### Admin Capabilities
 
 - View and filter all claims by status, zone, trigger type
-- Manually review flagged claims (trust score < 40)
+- Manually review flagged claims (URTS < 40)
 - Override payout decisions with audit trail
 - Export claim and financial reports
 - Configure trigger thresholds per zone
@@ -634,8 +642,8 @@ No parametric insurance product exists in India for gig workers. RideGuard is th
 ### 2. Zero-Claim Automation
 The entire pipeline — from trigger detection to payout — runs without any rider action. The rider doesn't file a claim, upload documents, or wait for approval. The system observes, decides, and pays.
 
-### 3. Trust Score Over Binary Decisions
-Instead of approving or denying claims, RideGuard uses a gradient trust system. This is fairer (one mistake doesn't destroy coverage) and more fraud-resistant (repeated bad behavior is penalized progressively).
+### 3. Unified Risk & Trust Score (URTS)
+Instead of relying on disjointed fraud rules, RideGuard merges historical trust data with real-time behavioral signals into a singular score. This gradient approach is fairer and highly resistant to spoofing rings.
 
 ### 4. Modular Micro-Premium System
 Riders choose which risks to cover and pay only for what they select. At ₹15–₹60/week per module, premiums are priced within the daily earnings of a single delivery — making insurance accessible to a population earning ₹7,000–₹10,000/week.
@@ -671,7 +679,7 @@ Flood detection uses both rainfall accumulation *and* traffic speed as independe
 - **Affordable**: ₹57–₹120/week — less than the cost of two deliveries.
 - **Accessible**: No paperwork, no documentation, no literacy barrier.
 - **Fair**: Pay only when active; payout scales with actual risk exposure.
-- **Trust-building**: Riders build a financial trust record — a stepping stone toward broader financial inclusion.
+- **Trust-building**: Riders build a Unified Risk & Trust Score natively — a stepping stone toward broader financial inclusion.
 
 ---
 
@@ -696,8 +704,9 @@ Flood detection uses both rainfall accumulation *and* traffic speed as independe
 ### Phase 3 — Intelligence & Scale (Weeks 7–10)
 - [ ] AI risk scoring model deployment
 - [ ] Dynamic premium adjustment pipeline
-- [ ] Fraud detection engine (rule-based + anomaly)
-- [ ] Trust score system implementation
+- [ ] Behavioral Risk Engine (rule-based + anomaly + cluster detection)
+- [ ] Unified Risk & Trust Score (URTS) system with Effective URTS
+- [ ] Multi-signal anomaly detection and signal fusion pipeline
 - [ ] Admin dashboard with analytics
 - [ ] Multi-zone Bangalore coverage
 - [ ] Load testing and performance optimization
