@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    container_name: rideguard-db
+    environment:
+      POSTGRES_USER: rideguard
+      POSTGRES_PASSWORD: rideguard
+      POSTGRES_DB: rideguard
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rideguard"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: rideguard-api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://rideguard:rideguard@db:5432/rideguard
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+volumes:
+  pgdata:
