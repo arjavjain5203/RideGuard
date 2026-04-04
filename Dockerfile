@@ -35,7 +35,10 @@ ARG NEXT_PUBLIC_API_URL=/api
 ARG INTERNAL_API_URL=http://127.0.0.1:8000/api
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     INTERNAL_API_URL=$INTERNAL_API_URL
-RUN npm run build
+RUN npm run build && \
+    cp -r public .next/standalone/public && \
+    mkdir -p .next/standalone/.next && \
+    cp -r .next/static .next/standalone/.next/static
 
 RUN chmod +x /app/render-start.sh && mkdir -p /app/data
 

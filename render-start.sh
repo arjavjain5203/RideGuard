@@ -2,12 +2,13 @@
 set -eu
 
 export PORT="${PORT:-10000}"
+export HOSTNAME="${HOSTNAME:-0.0.0.0}"
 export DATABASE_URL="${DATABASE_URL:-sqlite:////app/data/rideguard.db}"
 export SECRET_KEY="${SECRET_KEY:-rideguard-render-secret}"
 export TOKEN_ISSUER="${TOKEN_ISSUER:-rideguard-api}"
 export ACCESS_TOKEN_EXPIRE_MINUTES="${ACCESS_TOKEN_EXPIRE_MINUTES:-480}"
 export ENABLE_TRIGGER_MONITOR="${ENABLE_TRIGGER_MONITOR:-false}"
-export CORS_ORIGINS="${CORS_ORIGINS:-http://127.0.0.1:${PORT}}"
+export CORS_ORIGINS="${CORS_ORIGINS:-${RENDER_EXTERNAL_URL:-http://127.0.0.1:${PORT}}}"
 
 cd /app/backend
 /opt/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 &
