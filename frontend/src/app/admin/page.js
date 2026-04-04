@@ -56,6 +56,35 @@ const ZONES = [
   "Marathahalli",
 ];
 
+const formatSignalLabel = (signalKey) =>
+  String(signalKey || "")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+const getAlertSignalEntries = (behavioralSignals) => {
+  if (!behavioralSignals || typeof behavioralSignals !== "object") {
+    return [];
+  }
+
+  return Object.entries(behavioralSignals)
+    .filter(([, value]) => value !== null && value !== undefined && value !== 0 && value !== "")
+    .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0));
+};
+
+const formatSignalValue = (value) => {
+  if (typeof value !== "number") {
+    return String(value);
+  }
+
+  if (value >= 0 && value <= 1) {
+    return `${Math.round(value * 100)}% risk`;
+  }
+
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+};
+
 export default function AdminDashboard() {
   const { user, isAdmin, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -440,12 +469,30 @@ export default function AdminDashboard() {
             ) : (
               <div className="space-y-3">
                 {fraudAlerts.map((alert) => (
-                  <div key={alert.claim_id} className="p-3 bg-red-50 border border-red-100 rounded-lg text-sm">
-                    <div className="flex justify-between font-bold text-red-800">
-                      <span>Rider {alert.rider_id.substring(0, 8)}</span>
+                  <div key={alert.claim_id} className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm">
+                    <div className="flex items-start justify-between gap-3 font-bold text-red-800">
+                      <div>
+                        <p>Rider {alert.rider_id.substring(0, 8)}</p>
+                        <p className="mt-1 text-xs font-medium text-red-600">
+                          {new Date(alert.created_at).toLocaleString()}
+                        </p>
+                      </div>
                       <span>URTS: {alert.effective_urts}</span>
                     </div>
-                    <p className="text-xs text-red-600 mt-1">{JSON.stringify(alert.behavioral_signals)}</p>
+                    {getAlertSignalEntries(alert.behavioral_signals).length === 0 ? (
+                      <p className="mt-2 text-xs text-red-600">Behavioral anomaly detected, but no detailed signal values were recorded.</p>
+                    ) : (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {getAlertSignalEntries(alert.behavioral_signals).map(([signalKey, value]) => (
+                          <span
+                            key={`${alert.claim_id}-${signalKey}`}
+                            className="rounded-full border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-700"
+                          >
+                            {formatSignalLabel(signalKey)}: {formatSignalValue(value)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -2,7 +2,7 @@
 set -eu
 
 export PORT="${PORT:-10000}"
-export HOSTNAME="${HOSTNAME:-0.0.0.0}"
+export HOSTNAME="0.0.0.0"
 export DATABASE_URL="${DATABASE_URL:-sqlite:////app/data/rideguard.db}"
 export SECRET_KEY="${SECRET_KEY:-rideguard-render-secret}"
 export TOKEN_ISSUER="${TOKEN_ISSUER:-rideguard-api}"
