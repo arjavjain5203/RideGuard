@@ -12,7 +12,6 @@ export default function Sidebar() {
     { name: 'Get Policy', href: '/policy', icon: FaShieldAlt },
     { name: 'My Claims', href: '/claims', icon: FaFileInvoice },
     { name: 'Payouts', href: '/payout', icon: FaMoneyBillWave },
-    { name: 'Admin', href: '/admin', icon: FaShieldAlt },
   ];
 
   return (

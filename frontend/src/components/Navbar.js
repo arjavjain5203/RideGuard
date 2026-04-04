@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { FaShieldAlt, FaUserCircle } from 'react-icons/fa';
 
 export default function Navbar() {
-  const { riderId, logout } = useAuth();
+  const { user, isAdmin, isRider, logout } = useAuth();
 
   return (
     <nav className="bg-white shadow-sm sticky top-0 z-50">
@@ -18,22 +18,31 @@ export default function Navbar() {
             </Link>
           </div>
           <div className="flex items-center gap-4">
-            {riderId ? (
+            {user ? (
               <>
-                <Link href="/dashboard" className="text-gray-600 hover:text-green-600 font-medium">
-                  Dashboard
+                <Link
+                  href={isAdmin ? '/admin' : '/dashboard'}
+                  className="text-gray-600 hover:text-green-600 font-medium"
+                >
+                  {isAdmin ? 'Admin Panel' : 'Dashboard'}
                 </Link>
                 <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
                   <FaUserCircle className="text-gray-400 text-xl" />
+                  <span className="hidden text-sm text-gray-500 md:inline">{user.name}</span>
                   <button onClick={logout} className="text-sm text-red-500 hover:text-red-700 font-medium">
                     Logout
                   </button>
                 </div>
               </>
             ) : (
-              <Link href="/login" className="text-gray-600 hover:text-green-600 font-medium">
-                Login
-              </Link>
+              <>
+                <Link href="/login" className="text-gray-600 hover:text-green-600 font-medium">
+                  Rider Login
+                </Link>
+                <Link href="/admin/login" className="text-gray-600 hover:text-green-600 font-medium">
+                  Admin
+                </Link>
+              </>
             )}
           </div>
         </div>

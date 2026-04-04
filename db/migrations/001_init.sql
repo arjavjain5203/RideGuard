@@ -1,53 +1,77 @@
--- RideGuard - Initial Database Schema
+-- RideGuard - Initial Runtime-Compatible Database Schema
 -- PostgreSQL 15+
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ============================================================
--- RIDERS
+-- USERS
 -- ============================================================
-CREATE TABLE riders (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    zomato_partner_id VARCHAR(64) UNIQUE NOT NULL,
-    name            VARCHAR(128) NOT NULL,
-    phone           VARCHAR(15)  NOT NULL,
-    zone            VARCHAR(64)  NOT NULL,
-    upi_handle      VARCHAR(128) NOT NULL,
-    hourly_income   NUMERIC(10,2),
-    active_days_per_week INT DEFAULT 0,
-    is_active       BOOLEAN DEFAULT TRUE,
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE users (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name              VARCHAR(128) NOT NULL,
+    login_id          VARCHAR(128) UNIQUE,
+    password_hash     VARCHAR(512),
+    role              VARCHAR(16) NOT NULL DEFAULT 'rider' CHECK (role IN ('rider', 'admin')),
+    zomato_partner_id VARCHAR(64) UNIQUE,
+    phone             VARCHAR(15),
+    upi_handle        VARCHAR(128),
+    zone              VARCHAR(64) NOT NULL,
+    hourly_income     NUMERIC(10,2),
+    is_active         BOOLEAN DEFAULT TRUE,
+    base_urts         INT DEFAULT 70 CHECK (base_urts >= 0 AND base_urts <= 100),
+    last_login_at     TIMESTAMPTZ,
+    created_at        TIMESTAMPTZ DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================================
--- COVERAGE MODULES (lookup / reference table)
+-- EARNINGS
+-- ============================================================
+CREATE TABLE earnings (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    weekly_earnings NUMERIC(10,2) NOT NULL,
+    hours_worked    INT NOT NULL,
+    active_days     INT NOT NULL
+);
+
+-- ============================================================
+-- COVERAGE MODULES
 -- ============================================================
 CREATE TABLE coverage_modules (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name            VARCHAR(64) UNIQUE NOT NULL,  -- rain, flood, heat, aqi
-    display_name    VARCHAR(128) NOT NULL,
-    base_price      NUMERIC(10,2) NOT NULL,       -- weekly base price in INR
-    trigger_type    VARCHAR(32) NOT NULL,          -- rain, flood, heat, aqi
-    trigger_threshold NUMERIC(10,2) NOT NULL,      -- e.g. 15 (mm/hr), 42 (°C)
-    trigger_duration_hours NUMERIC(4,1) DEFAULT 0, -- sustained duration needed
-    description     TEXT
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name                   VARCHAR(64) UNIQUE NOT NULL,
+    display_name           VARCHAR(128) NOT NULL,
+    base_price             NUMERIC(10,2) NOT NULL,
+    trigger_type           VARCHAR(32) NOT NULL,
+    trigger_threshold      NUMERIC(10,2) NOT NULL,
+    trigger_duration_hours NUMERIC(4,1) DEFAULT 0,
+    description            TEXT
 );
 
--- Seed coverage modules
 INSERT INTO coverage_modules (name, display_name, base_price, trigger_type, trigger_threshold, trigger_duration_hours, description) VALUES
-    ('rain',  '☔ Rain Shield',  25.00, 'rain',  15.0,  2.0, 'Heavy rainfall ≥ 15 mm/hr for 2+ hours'),
-    ('flood', '🌊 Flood Guard', 20.00, 'flood', 60.0,  6.0, 'Flooding ≥ 60mm/6hr OR traffic < 5 km/h'),
-    ('heat',  '🌡️ Heat Cover',  15.00, 'heat',  42.0,  0.0, 'Extreme heat ≥ 42°C (instant trigger)'),
-    ('aqi',   '💨 AQI Protect', 18.00, 'aqi',   300.0, 3.0, 'Hazardous AQI ≥ 300 for 3+ hours');
+    ('rain',  '☔ Rain Shield',  25.00, 'rain',  15.0, 2.0, 'Heavy rainfall ≥ 15 mm/hr'),
+    ('flood', '🌊 Flood Guard', 20.00, 'flood', 60.0, 6.0, 'Flooding ≥ 60 mm rainfall or traffic < 5 km/h'),
+    ('heat',  '🌡️ Heat Cover', 15.00, 'heat',  42.0, 0.0, 'Extreme heat ≥ 42°C'),
+    ('aqi',   '💨 AQI Protect', 18.00, 'aqi',  300.0, 3.0, 'Hazardous AQI ≥ 300');
+
+-- ============================================================
+-- ZONES
+-- ============================================================
+CREATE TABLE zones (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name            VARCHAR(64) UNIQUE NOT NULL,
+    risk_multiplier NUMERIC(4,2) DEFAULT 1.00,
+    geo_bounds      TEXT
+);
 
 -- ============================================================
 -- POLICIES
 -- ============================================================
 CREATE TABLE policies (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    rider_id        UUID NOT NULL REFERENCES riders(id) ON DELETE CASCADE,
-    modules         JSONB NOT NULL DEFAULT '[]',   -- list of module names selected
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    coverage_types  TEXT NOT NULL DEFAULT '[]',
     weekly_premium  NUMERIC(10,2) NOT NULL,
     zone_multiplier NUMERIC(4,2) DEFAULT 1.00,
     risk_score      NUMERIC(4,2) DEFAULT 0.50,
@@ -58,54 +82,88 @@ CREATE TABLE policies (
 );
 
 -- ============================================================
+-- TRIGGERS
+-- ============================================================
+CREATE TABLE triggers (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type           VARCHAR(32) NOT NULL,
+    value          NUMERIC(10,2) NOT NULL,
+    zone           VARCHAR(64) NOT NULL,
+    status         VARCHAR(16) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','ONGOING','ENDED')),
+    start_time     TIMESTAMPTZ DEFAULT NOW(),
+    end_time       TIMESTAMPTZ,
+    duration_hours NUMERIC(4,2) DEFAULT 0,
+    triggered_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
 -- CLAIMS
 -- ============================================================
 CREATE TABLE claims (
-    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    policy_id               UUID NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
-    rider_id                UUID NOT NULL REFERENCES riders(id) ON DELETE CASCADE,
-    trigger_type            VARCHAR(16) NOT NULL CHECK (trigger_type IN ('rain','flood','heat','aqi')),
-    trigger_value           NUMERIC(10,2) NOT NULL,
-    disruption_start        TIMESTAMPTZ NOT NULL,
-    disruption_end          TIMESTAMPTZ,
-    disruption_hours        NUMERIC(4,1),
-    effective_urts          INT,
-    behavioral_risk_signals JSONB DEFAULT '{}',
-    status                  VARCHAR(16) DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','paid')),
-    created_at              TIMESTAMPTZ DEFAULT NOW()
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    policy_id          UUID REFERENCES policies(id) ON DELETE SET NULL,
+    user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    trigger_id         UUID REFERENCES triggers(id) ON DELETE SET NULL,
+    trigger_type       VARCHAR(16),
+    trigger_value      NUMERIC(10,2),
+    disruption_start   TIMESTAMPTZ,
+    disruption_end     TIMESTAMPTZ,
+    loss_amount        NUMERIC(10,2) NOT NULL,
+    status             VARCHAR(16) DEFAULT 'pending' CHECK (status IN ('pending','paid','rejected','capped')),
+    disruption_hours   NUMERIC(4,2),
+    effective_urts     INT CHECK (effective_urts >= 0 AND effective_urts <= 100),
+    behavioral_signals TEXT DEFAULT '{}',
+    created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================================
 -- PAYOUTS
 -- ============================================================
 CREATE TABLE payouts (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    claim_id            UUID NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
-    rider_id            UUID NOT NULL REFERENCES riders(id) ON DELETE CASCADE,
-    amount              NUMERIC(10,2) NOT NULL,
-    urts_factor         NUMERIC(3,2) NOT NULL,
-    upi_transaction_id  VARCHAR(64) UNIQUE NOT NULL,
-    status              VARCHAR(16) DEFAULT 'pending' CHECK (status IN ('pending','completed','failed')),
-    paid_at             TIMESTAMPTZ,
-    created_at          TIMESTAMPTZ DEFAULT NOW()
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    claim_id        UUID NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount          NUMERIC(10,2) NOT NULL,
+    urts_factor     NUMERIC(3,2) NOT NULL,
+    transaction_id  VARCHAR(64) UNIQUE NOT NULL,
+    status          VARCHAR(16) DEFAULT 'pending' CHECK (status IN ('pending','completed','failed','capped')),
+    paid_at         TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================================
--- RIDER SCORES (URTS)
+-- TRUST LOGS
 -- ============================================================
-CREATE TABLE rider_scores (
-    rider_id        UUID PRIMARY KEY REFERENCES riders(id) ON DELETE CASCADE,
-    urts_score      INT NOT NULL DEFAULT 70 CHECK (urts_score >= 0 AND urts_score <= 100),
-    last_event      VARCHAR(256),
-    score_history   JSONB DEFAULT '[]',
-    last_updated    TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE trust_logs (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    change     INT NOT NULL,
+    reason     VARCHAR(256) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- AUDIT LOGS
+-- ============================================================
+CREATE TABLE audit_logs (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_type VARCHAR(32) NOT NULL,
+    entity_id   UUID NOT NULL,
+    action      VARCHAR(64) NOT NULL,
+    details     TEXT DEFAULT '{}',
+    timestamp   TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================================
 -- INDEXES
 -- ============================================================
-CREATE INDEX idx_policies_rider     ON policies(rider_id);
-CREATE INDEX idx_claims_rider       ON claims(rider_id);
+CREATE INDEX idx_earnings_user      ON earnings(user_id);
+CREATE INDEX idx_users_role         ON users(role);
+CREATE INDEX idx_policies_user      ON policies(user_id);
+CREATE INDEX idx_claims_user        ON claims(user_id);
 CREATE INDEX idx_claims_policy      ON claims(policy_id);
-CREATE INDEX idx_payouts_rider      ON payouts(rider_id);
+CREATE INDEX idx_claims_trigger     ON claims(trigger_id);
+CREATE INDEX idx_payouts_user       ON payouts(user_id);
 CREATE INDEX idx_payouts_claim      ON payouts(claim_id);
+CREATE INDEX idx_trust_logs_user    ON trust_logs(user_id);
+CREATE INDEX idx_triggers_zone      ON triggers(zone);

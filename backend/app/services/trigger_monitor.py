@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from app.database import SessionLocal
-from app.models import Zone
+from app.models import User, Zone
 from app.schemas import TriggerSimulateRequest
 from app.routers.triggers import check_zone_triggers
 
@@ -29,8 +29,17 @@ async def start_monitor_loop():
             for z_name in zone_names:
                 loop_db = SessionLocal()
                 try:
+                    system_actor = (
+                        loop_db.query(User)
+                        .filter(User.role == "admin")
+                        .order_by(User.created_at.asc())
+                        .first()
+                    )
+                    if system_actor is None:
+                        logger.warning("Skipping trigger monitor run because no admin/system actor exists.")
+                        break
                     req = TriggerSimulateRequest(zone=z_name)
-                    res = await check_zone_triggers(req, loop_db)
+                    res = await check_zone_triggers(req, loop_db, system_actor)
                     logger.info(f"Trigger Monitor check for {z_name}: {res.message}")
                 except Exception as e:
                     logger.error(f"Error checking triggers for {z_name}: {e}")
@@ -42,4 +51,3 @@ async def start_monitor_loop():
             
         # 15 minutes = 900 seconds
         await asyncio.sleep(900)
-

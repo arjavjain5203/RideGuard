@@ -1,119 +1,84 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-import json
-import uuid
 
+from app.auth import get_current_user, require_rider_or_admin_access
 from app.database import get_db
-from app.models import Claim, Payout, User, TrustLog, Policy, AuditLog
-from app.schemas import PayoutProcessRequest, PayoutResponse, ClaimResponse
-from app.services.fraud_detection import get_urts_factor
-from datetime import datetime, timedelta
-from sqlalchemy import func
+from app.models import Claim, Payout, User
+from app.schemas import ClaimResponse, PayoutProcessRequest, PayoutResponse
+from app.services.payment_service import process_claim_payout
 
 router = APIRouter(prefix="/api/payouts", tags=["Payouts"])
 
+
 @router.post("/process", response_model=PayoutResponse, status_code=201)
-def process_payout(payload: PayoutProcessRequest, db: Session = Depends(get_db)):
+def process_payout(
+    payload: PayoutProcessRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     claim = db.query(Claim).filter(Claim.id == payload.claim_id).first()
     if not claim:
         raise HTTPException(status_code=404, detail="Claim not found")
+    require_rider_or_admin_access(claim.user_id, current_user)
     if claim.status == "paid":
         raise HTTPException(status_code=409, detail="Claim already paid")
     if claim.status == "rejected":
         raise HTTPException(status_code=400, detail="Claim was rejected")
+    if claim.status == "capped" and claim.payout:
+        raise HTTPException(status_code=409, detail="Claim payout already capped")
 
-    user = db.query(User).filter(User.id == claim.user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # Assuming we attach behavioral risk implicitly or skip for pure DB MVP
-    urts_factor = get_urts_factor(user.base_urts)
-    if urts_factor == 0.0:
-        claim.status = "rejected"
-        db.commit()
-        raise HTTPException(status_code=400, detail="Payout blocked — Trust Score too low")
-
-    # Get policy to check caps (Part 6)
-    policy = db.query(Policy).filter(Policy.user_id == user.id, Policy.status == "active").first()
-    weekly_premium = policy.weekly_premium if policy else 0.0
-
-    # Part 16: Weekly & Monthly Tracking
-    now_ts = datetime.utcnow()
-    one_week_ago = now_ts - timedelta(days=7)
-    one_month_ago = now_ts - timedelta(days=30)
-
-    weekly_total = db.query(func.sum(Payout.amount)).filter(
-        Payout.user_id == user.id, Payout.created_at >= one_week_ago
-    ).scalar() or 0.0
-
-    monthly_total = db.query(func.sum(Payout.amount)).filter(
-        Payout.user_id == user.id, Payout.created_at >= one_month_ago
-    ).scalar() or 0.0
-
-    max_weekly_payout = 2.0 * weekly_premium
-    max_monthly_payout = 6.0 * (weekly_premium * 4.0)
-
-    # Calculate requested amount
-    payout_amt = round(claim.loss_amount * urts_factor, 2)
-    
-    # Cap enforcement
-    available_weekly = max(0.0, max_weekly_payout - weekly_total)
-    available_monthly = max(0.0, max_monthly_payout - monthly_total)
-
-    payout_amt = min(payout_amt, available_weekly, available_monthly)
-
-    # Ensure transaction safety
     try:
-        payout = Payout(
-            claim_id=claim.id,
-            user_id=user.id,
-            amount=payout_amt,
-            urts_factor=urts_factor,
-            transaction_id=f"UPI-RG-{str(uuid.uuid4())[:12].upper()}",
-            status="completed" if payout_amt > 0 else "capped"
-        )
-        claim.status = "paid" if payout_amt > 0 else "capped"
-        db.add(payout)
-        
-        db.add(AuditLog(entity_type="payout", entity_id=payout.id, action="PROCESSED", details=json.dumps({"amount": payout_amt, "weekly_total": weekly_total})))
-
-        # Trust Score reward logic +2
-        new_score = min(100, user.base_urts + 2)
-        user.base_urts = new_score
-    
-        tlog = TrustLog(
-            user_id=user.id,
-            change=2,
-            reason=f"Valid claim {claim.id} paid"
-        )
-        db.add(tlog)
-
+        payout = process_claim_payout(db, claim, auto_source="manual")
         db.commit()
+        if payout is None:
+            raise HTTPException(status_code=400, detail="Payout blocked — Effective URTS too low")
         db.refresh(payout)
         return payout
-    except Exception as e:
+    except HTTPException:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Transaction failed: {str(e)}")
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Transaction failed: {str(exc)}") from exc
+
 
 @router.get("/claim/{claim_id}", response_model=ClaimResponse)
-def get_claim(claim_id: str, db: Session = Depends(get_db)):
+def get_claim(
+    claim_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     claim = db.query(Claim).filter(Claim.id == claim_id).first()
     if not claim:
         raise HTTPException(status_code=404, detail="Claim not found")
-        
+    require_rider_or_admin_access(claim.user_id, current_user)
+
     return ClaimResponse(
         id=claim.id,
+        policy_id=claim.policy_id,
         rider_id=claim.user_id,
-        trigger_type=claim.trigger.type if claim.trigger else "unknown",
-        trigger_value=claim.trigger.value if claim.trigger else 0.0,
-        disruption_start=claim.created_at,
+        trigger_type=claim.trigger_type or (claim.trigger.type if claim.trigger else "unknown"),
+        trigger_value=claim.trigger_value or (claim.trigger.value if claim.trigger else 0.0),
+        disruption_start=claim.disruption_start or claim.created_at,
+        disruption_end=claim.disruption_end,
         disruption_hours=claim.disruption_hours,
+        loss_amount=claim.loss_amount,
         effective_urts=claim.effective_urts,
         status=claim.status,
         created_at=claim.created_at,
-        behavioral_risk_signals=json.loads(claim.behavioral_signals) if claim.behavioral_signals else {}
+        behavioral_risk_signals=json.loads(claim.behavioral_signals) if claim.behavioral_signals else {},
+        payout_amount=claim.payout.amount if claim.payout else None,
+        payout_status=claim.payout.status if claim.payout else None,
     )
 
+
 @router.get("/rider/{rider_id}", response_model=list[PayoutResponse])
-def get_rider_payouts(rider_id: str, db: Session = Depends(get_db)):
-    return db.query(Payout).filter(Payout.user_id == rider_id).all()
+def get_rider_payouts(
+    rider_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_rider_or_admin_access(rider_id, current_user)
+    return db.query(Payout).filter(Payout.user_id == rider_id).order_by(Payout.created_at.desc()).all()

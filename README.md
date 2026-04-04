@@ -34,6 +34,7 @@
 - [Why This Matters](#why-this-matters)
 - [Development Roadmap](#development-roadmap)
 - [Tech Stack](#tech-stack)
+- [Documentation](#documentation)
 - [Getting Started](#getting-started)
 - [License](#license)
 
@@ -736,15 +737,32 @@ Flood detection uses both rainfall accumulation *and* traffic speed as independe
 
 ---
 
+## Documentation
+
+The root README is the product and demo narrative. For documentation that matches the current codebase more closely, start in [`docs/index.md`](./docs/index.md).
+
+- [Project Overview](./docs/project-overview.md)
+- [Setup and Running](./docs/setup-and-running.md)
+- [Architecture](./docs/architecture.md)
+- [Backend API](./docs/backend-api.md)
+- [Data Model](./docs/data-model.md)
+- [Frontend](./docs/frontend.md)
+- [Business Rules](./docs/business-rules.md)
+- [Testing](./docs/testing.md)
+- [Deployment and Ops](./docs/deployment-and-ops.md)
+- [Roadmap](./docs/roadmap.md)
+
+Some sections below describe the intended platform vision more broadly than the current implementation. When the README and the code disagree, prefer the docs in `docs/` and the code itself.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js ≥ 18
-- Python ≥ 3.11
-- PostgreSQL ≥ 15
-- Redis ≥ 7
-- Docker & Docker Compose (recommended)
+- Docker & Docker Compose for the recommended full-stack path
+- Node.js ≥ 20 if you want to run the frontend locally instead of in Docker
+- Python ≥ 3.11 if you want to run the backend locally instead of in Docker
 
 ### Quick Start
 
@@ -753,39 +771,40 @@ Flood detection uses both rainfall accumulation *and* traffic speed as independe
 git clone https://github.com/your-org/rideguard.git
 cd rideguard
 
-# Start all services
-docker-compose up -d
-
-# Run database migrations
-python manage.py migrate
-
-# Seed sample data (riders, zones, policies)
-python manage.py seed
-
-# Start the frontend
-cd frontend && npm install && npm run dev
+# Start the full stack
+docker compose up --build
 ```
 
-The dashboard will be available at `http://localhost:3000`.
+The dashboard will be available at `http://localhost:3000` and the API docs at `http://localhost:8000/docs`.
+
+Seeded demo accounts:
+
+- Rider: `rider.demo@rideguard.local` / `RideGuardRider@123`
+- Admin: `admin@rideguard.local` / `RideGuardAdmin@123`
 
 ### Environment Variables
 
 ```env
 # Database
-DATABASE_URL=postgresql://rideguard:password@localhost:5432/rideguard
+DATABASE_URL=postgresql://rideguard:rideguard@localhost:5432/rideguard
 
-# External APIs
-WEATHER_API_KEY=your_openweathermap_key
-AQI_API_KEY=your_aqicn_key
-TRAFFIC_API_KEY=your_google_maps_key
+# Frontend
+NEXT_PUBLIC_API_URL=http://localhost:8000/api
 
 # Auth
-JWT_SECRET=your_jwt_secret
-JWT_EXPIRY=24h
+SECRET_KEY=rideguard-dev-secret-change-me
+TOKEN_ISSUER=rideguard-api
+ACCESS_TOKEN_EXPIRE_MINUTES=480
 
-# Payments
-UPI_SIMULATION_MODE=true
+# Runtime
+CORS_ORIGINS=http://localhost:3000
+ENABLE_TRIGGER_MONITOR=true
+
+# Optional LLM integration
+GEMINI_API_KEY=your_gemini_api_key
 ```
+
+For the code-accurate runtime docs, use [Setup and Running](./docs/setup-and-running.md) and [Deployment and Ops](./docs/deployment-and-ops.md).
 
 ---
 

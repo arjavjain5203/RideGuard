@@ -1,8 +1,9 @@
 """Fraud Detection — Behavioral Risk Engine producing signal vectors for URTS."""
 
 from dataclasses import dataclass, field
-from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+
+from sqlalchemy.orm import Session
 
 from app.models import Claim, User as Rider
 
@@ -78,7 +79,7 @@ def run_fraud_checks(
     duplicate = (
         db.query(Claim)
         .filter(
-            Claim.rider_id == rider.id,
+            Claim.user_id == rider.id,
             Claim.trigger_type == trigger_type,
             Claim.created_at >= six_hours_ago,
         )
@@ -93,7 +94,7 @@ def run_fraud_checks(
     two_hours_ago = datetime.utcnow() - timedelta(hours=2)
     zone_claims_count = (
         db.query(Claim)
-        .join(Rider, Claim.rider_id == Rider.id)
+        .join(Rider, Claim.user_id == Rider.id)
         .filter(
             Rider.zone == zone,
             Claim.trigger_type == trigger_type,
@@ -109,6 +110,18 @@ def run_fraud_checks(
     if not rider.is_active:
         signals.activity_mismatch = max(signals.activity_mismatch, 0.9)
         signals.flags.append("rider_inactive")
+
+    recent_claims_count = (
+        db.query(Claim)
+        .filter(
+            Claim.user_id == rider.id,
+            Claim.created_at >= datetime.utcnow() - timedelta(days=7),
+        )
+        .count()
+    )
+    if recent_claims_count >= 3:
+        signals.activity_mismatch = max(signals.activity_mismatch, min(recent_claims_count / 5.0, 1.0))
+        signals.flags.append("high_claim_frequency")
 
     return signals
 

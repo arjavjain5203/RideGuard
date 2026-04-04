@@ -10,7 +10,7 @@ import Loader from "@/components/Loader";
 import { FaCheckCircle, FaUniversity, FaRobot } from "react-icons/fa";
 
 export default function PayoutPage() {
-  const { riderId } = useAuth();
+  const { riderId, user, isRider, loading: authLoading } = useAuth();
   const router = useRouter();
   
   const [payouts, setPayouts] = useState([]);
@@ -18,8 +18,13 @@ export default function PayoutPage() {
   const [aiExplanation, setAiExplanation] = useState(null);
 
   useEffect(() => {
-    if (!riderId) {
-      router.push("/");
+    if (authLoading) return;
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+    if (!isRider || !riderId) {
+      router.push("/admin");
       return;
     }
 
@@ -50,9 +55,9 @@ export default function PayoutPage() {
     };
 
     loadData();
-  }, [riderId, router]);
+  }, [authLoading, isRider, riderId, router, user]);
 
-  if (loading) return <Loader fullScreen text="Loading payouts..." />;
+  if (authLoading || loading) return <Loader fullScreen text="Loading payouts..." />;
 
   const latestPayout = payouts.length > 0 ? payouts[0] : null;
 
@@ -109,7 +114,7 @@ export default function PayoutPage() {
                         <span className="font-bold text-sm">AI Explanation</span>
                       </div>
                       <p className="text-sm text-green-50 leading-relaxed italic">
-                        "{aiExplanation}"
+                        &ldquo;{aiExplanation}&rdquo;
                       </p>
                     </div>
                   )}

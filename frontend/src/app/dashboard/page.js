@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/context/ToastContext";
 import { fetchPolicies, fetchScore, fetchEarnings, triggerEvent } from "@/services/api";
 import Sidebar from "@/components/Sidebar";
 import Card from "@/components/Card";
 import Loader from "@/components/Loader";
-import toast from "react-hot-toast";
 import { FaShieldAlt, FaStar, FaRupeeSign, FaCloudShowersHeavy, FaCheckCircle, FaExclamationTriangle } from "react-icons/fa";
 
 export default function Dashboard() {
-  const { riderId } = useAuth();
+  const { riderId, user, isRider, loading: authLoading } = useAuth();
+  const toast = useToast();
   const router = useRouter();
   
   const [data, setData] = useState({
@@ -22,7 +23,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [triggerLoading, setTriggerLoading] = useState(false);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!riderId) return;
     try {
       const [policiesRes, scoreRes, earningsRes] = await Promise.all([
@@ -44,15 +45,20 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [riderId, toast]);
 
   useEffect(() => {
-    if (!riderId) {
-      router.push("/");
+    if (authLoading) return;
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+    if (!isRider || !riderId) {
+      router.push("/admin");
       return;
     }
     loadData();
-  }, [riderId, router]);
+  }, [authLoading, isRider, riderId, router, loadData, user]);
 
   const simulateTrigger = async () => {
     setTriggerLoading(true);
@@ -69,14 +75,20 @@ export default function Dashboard() {
       const response = await triggerEvent(payload);
       
       if (response.claims_created > 0) {
-        toast.custom((t) => (
+        toast.custom(({ dismiss }) => (
           <div className="bg-white px-6 py-4 shadow-xl rounded-xl border-l-4 border-green-500 flex items-start gap-4 max-w-md">
             <FaCheckCircle className="text-green-500 text-2xl mt-0.5" />
             <div>
-              <h3 className="font-bold text-gray-900">Claim Auto-Generated!</h3>
-              <p className="text-sm text-gray-600 mt-1">Heavy rain detected in {payload.zone}. A claim has been created and payout processed.</p>
+              <h3 className="font-bold text-gray-900">
+                {response.payouts_created > 0 ? "Claim and Payout Completed!" : "Claim Auto-Generated!"}
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Heavy rain detected in {payload.zone}. {response.payouts_created > 0
+                  ? `${response.payouts_created} payout(s) were completed automatically.`
+                  : "A claim was created, but no payout was completed automatically."}
+              </p>
               <button 
-                onClick={() => { toast.dismiss(t.id); router.push("/payout"); }}
+                onClick={() => { dismiss(); router.push("/payout"); }}
                 className="mt-3 text-sm font-semibold text-green-600 hover:text-green-800"
               >
                 View Payout &rarr;
@@ -97,7 +109,7 @@ export default function Dashboard() {
     }
   };
 
-  if (loading) return <Loader fullScreen text="Loading your protection dashboard..." />;
+  if (authLoading || loading) return <Loader fullScreen text="Loading your protection dashboard..." />;
 
   const { policy, score, earnings } = data;
 
@@ -208,7 +220,7 @@ export default function Dashboard() {
           <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
             <h3 className="text-lg font-bold text-gray-900 mb-2">All systems operational</h3>
             <p className="text-gray-600 max-w-lg mx-auto">
-              Our AI is actively monitoring weather conditions in your zone. You don't need to do anything. If an extreme weather event occurs, your claim will be automatically generated and paid out via UPI.
+              Our AI is actively monitoring weather conditions in your zone. You don&apos;t need to do anything. If an eligible event occurs, RideGuard will create the claim and attempt payout automatically.
             </p>
           </div>
         </div>

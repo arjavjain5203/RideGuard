@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -9,14 +10,19 @@ import Card from "@/components/Card";
 import { FaMotorcycle, FaRupeeSign, FaClock } from "react-icons/fa";
 
 export default function Onboarding() {
-  const { riderId } = useAuth();
+  const { riderId, user, isRider, loading: authLoading } = useAuth();
   const router = useRouter();
   const [earnings, setEarnings] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!riderId) {
-      router.push("/");
+    if (authLoading) return;
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+    if (!isRider || !riderId) {
+      router.push("/admin");
       return;
     }
 
@@ -32,9 +38,9 @@ export default function Onboarding() {
     };
 
     loadEarnings();
-  }, [riderId, router]);
+  }, [authLoading, isRider, riderId, router, user]);
 
-  if (loading) return <Loader fullScreen text="Syncing partner data..." />;
+  if (authLoading || loading) return <Loader fullScreen text="Syncing partner data..." />;
   if (!earnings) return <Loader text="Failed to load your earnings profile. Please try refreshing." />;
 
   const { summary } = earnings;
@@ -43,7 +49,7 @@ export default function Onboarding() {
     <div className="max-w-4xl mx-auto px-4 py-12">
       <div className="text-center mb-10">
         <h1 className="text-4xl font-extrabold text-gray-900 mb-4">Profile Synced!</h1>
-        <p className="text-xl text-gray-600">We've connected to your partner account. Here is your current earning profile used to calculate coverage.</p>
+        <p className="text-xl text-gray-600">We&apos;ve connected to your partner account. Here is your current earning profile used to calculate coverage.</p>
       </div>
 
       <div className="grid md:grid-cols-3 gap-6 mb-10">
@@ -76,12 +82,13 @@ export default function Onboarding() {
       </div>
 
       <div className="text-center">
-        <button
-          onClick={() => router.push("/policy")}
+        <Link
+          href="/policy"
           className="px-10 py-4 text-lg font-bold rounded-xl text-white bg-green-600 hover:bg-green-700 shadow-lg shadow-green-600/30 transition-all hover:scale-105"
+          aria-label="Continue to policy selection"
         >
           Continue to Policy Selection
-        </button>
+        </Link>
       </div>
     </div>
   );

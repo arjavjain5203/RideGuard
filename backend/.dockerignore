@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+tests
+*.db
+*.db-shm
+*.db-wal
+backend_start.log
+rideguard.db
+rideguard.db-shm
+rideguard.db-wal

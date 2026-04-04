@@ -1,14 +1,21 @@
 import os
-import google.generativeai as genai
 
 # Try to configure Gemini API. If no key, fallback to mock.
 api_key = os.environ.get("GEMINI_API_KEY")
+genai = None
 if api_key:
-    genai.configure(api_key=api_key)
+    try:
+        import google.generativeai as google_genai  # pragma: no cover - optional dependency
+    except ImportError:
+        google_genai = None
+
+    if google_genai is not None:
+        google_genai.configure(api_key=api_key)
+        genai = google_genai
 
 def call_gemini(prompt: str) -> str:
     """Helper to call Gemini or return mock response if key is missing."""
-    if not api_key:
+    if not api_key or genai is None:
         return f"[MOCK AI RESPONSE]: {prompt[:50]}..."
     
     try:

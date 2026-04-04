@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import random
 
+from app.auth import get_current_user, require_rider_or_admin_access
 from app.database import get_db
 from app.models import User, Earnings
 from app.schemas import EarningsResponse
@@ -9,8 +10,13 @@ from app.schemas import EarningsResponse
 router = APIRouter(prefix="/api/zomato", tags=["Zomato (DB)"])
 
 @router.get("/earnings/{rider_id}", response_model=EarningsResponse)
-def get_rider_earnings(rider_id: str, db: Session = Depends(get_db)):
+def get_rider_earnings(
+    rider_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Fetch earnings from DB instead of pure mock generation."""
+    require_rider_or_admin_access(rider_id, current_user)
     user = db.query(User).filter(User.id == rider_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Rider not found")

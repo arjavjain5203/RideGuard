@@ -8,7 +8,7 @@ export default function LandingPage() {
       <div className="relative bg-gradient-to-br from-green-50 via-white to-green-50 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-24 text-center">
           <h1 className="text-5xl md:text-6xl font-extrabold text-gray-900 tracking-tight mb-8">
-            Weather disruptions shouldn't <br className="hidden md:block" />
+            Weather disruptions shouldn&apos;t <br className="hidden md:block" />
             cost you <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-emerald-500">your income.</span>
           </h1>
           <p className="mt-4 max-w-2xl mx-auto text-xl text-gray-600 mb-10">
@@ -25,9 +25,15 @@ export default function LandingPage() {
               href="/login" 
               className="px-8 py-4 text-lg font-bold rounded-xl text-gray-700 bg-white border-2 border-gray-200 hover:border-green-600 hover:text-green-600 transition-all"
             >
-              Login
+              Rider Login
             </Link>
           </div>
+          <p className="mt-4 text-sm text-gray-500">
+            Admin access available at{" "}
+            <Link href="/admin/login" className="font-semibold text-green-600 hover:text-green-700">
+              /admin/login
+            </Link>
+          </p>
         </div>
       </div>
 
@@ -71,7 +77,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold">Comprehensive Protection</h2>
-            <p className="mt-4 text-gray-400">Parametric triggers designed specifically for Bangalore's climate.</p>
+            <p className="mt-4 text-gray-400">Parametric triggers designed specifically for Bangalore&apos;s climate.</p>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">

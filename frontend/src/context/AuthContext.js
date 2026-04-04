@@ -1,52 +1,109 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
-import { fetchRider } from '@/services/api';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import {
+  clearAccessToken,
+  fetchCurrentUser,
+  getAccessToken,
+  setAccessToken,
+} from '@/services/api';
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
-export const AuthProvider = ({ children }) => {
-  const [riderId, setRiderId] = useState(null);
+const ADMIN_PATH_PREFIX = '/admin';
+
+function getDefaultRedirectPath(role) {
+  return role === 'admin' ? '/admin' : '/dashboard';
+}
+
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
+    let mounted = true;
+
     const checkSession = async () => {
-      const storedRiderId = localStorage.getItem('rideguard_rider_id');
-      if (storedRiderId) {
-        try {
-          // Verify session exists in our database
-          await fetchRider(storedRiderId);
-          setRiderId(storedRiderId);
-        } catch (err) {
-          // Session is invalid (e.g. database was reset)
-          localStorage.removeItem('rideguard_rider_id');
-          setRiderId(null);
+      const token = getAccessToken();
+      if (!token) {
+        if (mounted) {
+          setUser(null);
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const profile = await fetchCurrentUser();
+        if (mounted) {
+          setUser(profile);
+        }
+      } catch (err) {
+        clearAccessToken();
+        if (mounted) {
+          setUser(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
         }
       }
-      setLoading(false);
     };
+
     checkSession();
+
+    const handleUnauthorized = () => {
+      clearAccessToken();
+      setUser(null);
+      router.push(pathname?.startsWith(ADMIN_PATH_PREFIX) ? '/admin/login' : '/login');
+    };
+
+    window.addEventListener('rideguard:unauthorized', handleUnauthorized);
+    return () => {
+      mounted = false;
+      window.removeEventListener('rideguard:unauthorized', handleUnauthorized);
+    };
+  }, [pathname, router]);
+
+  const login = useCallback((authResponse) => {
+    setAccessToken(authResponse.access_token);
+    setUser(authResponse.user);
   }, []);
 
-  const login = (id) => {
-    localStorage.setItem('rideguard_rider_id', id);
-    setRiderId(id);
-  };
+  const logout = useCallback(({ redirectTo } = {}) => {
+    const currentRole = user?.role;
+    clearAccessToken();
+    setUser(null);
+    router.push(redirectTo || (currentRole === 'admin' ? '/admin/login' : '/login'));
+  }, [router, user?.role]);
 
-  const logout = () => {
-    localStorage.removeItem('rideguard_rider_id');
-    setRiderId(null);
-    router.push('/');
-  };
-
-  return (
-    <AuthContext.Provider value={{ riderId, login, logout, loading }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      user,
+      riderId: user?.role === 'rider' ? user.id : null,
+      accountId: user?.id || null,
+      role: user?.role || null,
+      isAdmin: user?.role === 'admin',
+      isRider: user?.role === 'rider',
+      isAuthenticated: Boolean(user),
+      loading,
+      login,
+      logout,
+      getDefaultRedirectPath,
+    }),
+    [loading, login, logout, user]
   );
-};
 
-export const useAuth = () => useContext(AuthContext);
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
