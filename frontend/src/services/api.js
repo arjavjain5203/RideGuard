@@ -64,7 +64,7 @@ apiClient.interceptors.response.use(
       getAccessToken() &&
       error.config?.url !== '/auth/login'
     ) {
-      console.error('Auth failure detected');
+      console.warn('Auth failure detected (stale token). Clearing session.');
       clearAccessToken();
       window.dispatchEvent(new CustomEvent('rideguard:unauthorized'));
     }

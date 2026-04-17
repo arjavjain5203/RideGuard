@@ -10,6 +10,11 @@ export ACCESS_TOKEN_EXPIRE_MINUTES="${ACCESS_TOKEN_EXPIRE_MINUTES:-480}"
 export ENABLE_TRIGGER_MONITOR="${ENABLE_TRIGGER_MONITOR:-false}"
 export CORS_ORIGINS="${CORS_ORIGINS:-${RENDER_EXTERNAL_URL:-http://127.0.0.1:${PORT}}}"
 
+# Configure Celery for eager (in-process) execution on Render where no Redis exists
+export CELERY_TASK_ALWAYS_EAGER="${CELERY_TASK_ALWAYS_EAGER:-true}"
+export CELERY_BROKER_URL="${CELERY_BROKER_URL:-memory://}"
+export CELERY_RESULT_BACKEND="${CELERY_RESULT_BACKEND:-cache+memory://}"
+
 cd /app/backend
 /opt/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 &
 BACKEND_PID=$!
