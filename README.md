@@ -806,6 +806,12 @@ GEMINI_API_KEY=your_gemini_api_key
 
 For the code-accurate runtime docs, use [Setup and Running](./docs/setup-and-running.md) and [Deployment and Ops](./docs/deployment-and-ops.md).
 
+
+### PITCH DECK
+
+https://app.presentations.ai/view/oHjm1fkUR8
+
+
 ---
 
 ## License
