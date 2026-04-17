@@ -87,3 +87,54 @@ def create_rider(
     current_user: User = Depends(require_admin),
 ):
     return create_rider_account(payload, db, trust_reason=f"Admin created rider via {current_user.login_id}")
+
+from datetime import datetime, UTC
+from app.models import AuditLog
+from fastapi import HTTPException
+
+@router.get("/pending-payouts")
+def get_pending_payouts(
+    db: Session = Depends(get_db),
+    limit: int = 50,
+    current_user: User = Depends(require_admin),
+):
+    payouts = db.query(Payout).filter(Payout.status == "pending").order_by(Payout.created_at.desc()).limit(limit).all()
+    return [{
+        "id": p.id,
+        "amount": p.amount,
+        "urts_factor": p.urts_factor,
+        "created_at": p.created_at,
+        "rider_id": p.user_id,
+        "rider_name": p.user.name if p.user else "Unknown",
+        "rider_zomato_id": p.user.zomato_partner_id if p.user else "Unknown",
+        "zone": p.user.zone if p.user else "Unknown",
+        "claim_id": p.claim_id,
+        "loss_amount": p.claim.loss_amount if p.claim else 0.0,
+        "effective_urts": p.claim.effective_urts if p.claim else 0,
+    } for p in payouts]
+
+@router.post("/payouts/{payout_id}/approve")
+def approve_pending_payout(
+    payout_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    payout = db.query(Payout).filter(Payout.id == payout_id, Payout.status == "pending").first()
+    if not payout:
+        raise HTTPException(status_code=404, detail="Pending payout not found")
+        
+    payout.status = "completed"
+    payout.paid_at = datetime.now(UTC)
+    
+    if payout.claim:
+        payout.claim.status = "paid"
+        
+    db.add(AuditLog(
+        entity_type="payout",
+        entity_id=payout.id,
+        action="APPROVED",
+        details=json.dumps({"approved_by": current_user.login_id})
+    ))
+    
+    db.commit()
+    return {"status": "success", "message": "Payout approved successfully"}

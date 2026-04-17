@@ -301,3 +301,13 @@ export const createAdminRider = async (userData) => {
   const response = await apiClient.post('/admin/riders', userData);
   return response.data;
 };
+
+export const fetchAdminPendingPayouts = async () => {
+  const response = await apiClient.get('/admin/pending-payouts');
+  return response.data;
+};
+
+export const approveAdminPayout = async (payoutId) => {
+  const response = await apiClient.post(`/admin/payouts/${payoutId}/approve`);
+  return response.data;
+};

@@ -272,7 +272,6 @@ def create_claim_for_trigger(
     )
 
     if enqueue_claim_processing:
-        enqueue_task(process_claim_task, claim.id, initiated_by_user_id=user.id, auto_source="trigger_monitor")
         return claim, False
 
     payout = process_claim_payout(db, claim, auto_source="trigger_monitor")
@@ -297,6 +296,7 @@ def process_zone_trigger_check(
     current_time = datetime.now(UTC)
     claims_created = 0
     payouts_created = 0
+    pending_claims_to_enqueue = []
 
     try:
         cached_trigger_ids = get_cached_json(active_trigger_cache_key(payload.zone)) or []
@@ -436,7 +436,7 @@ def process_zone_trigger_check(
                     log_claim_skip(db, user, trigger_record, "duplicate_claim", claim_id=duplicate_claim.id)
                     continue
 
-                _, payout_created = create_claim_for_trigger(
+                claim_obj, payout_created = create_claim_for_trigger(
                     db,
                     user,
                     policy,
@@ -444,11 +444,17 @@ def process_zone_trigger_check(
                     current_time,
                     enqueue_claim_processing=enqueue_claim_processing,
                 )
+                if enqueue_claim_processing and claim_obj:
+                    pending_claims_to_enqueue.append((claim_obj.id, user.id))
+
                 claims_created += 1
                 payouts_created += 1 if payout_created else 0
 
         cache_active_triggers(payload.zone, existing_triggers)
         db.commit()
+
+        for claim_id, actor_id in pending_claims_to_enqueue:
+            enqueue_task(process_claim_task, claim_id, initiated_by_user_id=actor_id, auto_source="trigger_monitor")
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Transaction failed: {str(exc)}") from exc

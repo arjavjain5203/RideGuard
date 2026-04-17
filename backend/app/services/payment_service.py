@@ -35,13 +35,13 @@ def _calculate_cap_adjusted_amount(
 
     weekly_total = (
         db.query(func.sum(Payout.amount))
-        .filter(Payout.user_id == user_id, Payout.created_at >= week_start)
+        .filter(Payout.user_id == user_id, Payout.created_at >= week_start, Payout.status.in_(["completed", "capped"]))
         .scalar()
         or 0.0
     )
     monthly_total = (
         db.query(func.sum(Payout.amount))
-        .filter(Payout.user_id == user_id, Payout.created_at >= month_start)
+        .filter(Payout.user_id == user_id, Payout.created_at >= month_start, Payout.status.in_(["completed", "capped"]))
         .scalar()
         or 0.0
     )
@@ -91,8 +91,8 @@ def _update_base_urts_after_event(db: Session, user: User, claim: Claim, evaluat
         new_base = max(0, old_base - penalty)
         reason = f"URTS penalty for anomalous claim {claim.id}"
         change = new_base - old_base
-    elif payout_status == "completed" and old_base < 70:
-        new_base = min(70, old_base + 1)
+    elif payout_status == "completed" and old_base < 100:
+        new_base = min(100, old_base + 1)
         reason = f"URTS reward for clean paid claim {claim.id}"
         change = new_base - old_base
     else:
@@ -247,7 +247,12 @@ def process_claim_payout(db: Session, claim: Claim, auto_source: str = "manual")
     requested_amount = round(claim.loss_amount * applied_payout_factor, 2)
     payout_amount = _calculate_cap_adjusted_amount(db, user.id, requested_amount, weekly_premium)
 
-    payout_status = "completed" if payout_amount == requested_amount and payout_amount > 0 else "capped"
+    if effective_urts < 60:
+        payout_status = "pending"
+        claim_status_val = "under_review"
+    else:
+        payout_status = "completed" if payout_amount == requested_amount and payout_amount > 0 else "capped"
+        claim_status_val = "paid" if payout_status == "completed" else "capped"
 
     payout = Payout(
         claim_id=claim.id,
@@ -256,18 +261,19 @@ def process_claim_payout(db: Session, claim: Claim, auto_source: str = "manual")
         urts_factor=applied_payout_factor,
         transaction_id=f"UPI-RG-{str(uuid.uuid4())[:12].upper()}",
         status=payout_status,
-        paid_at=datetime.now(UTC) if payout_amount > 0 else None,
+        paid_at=datetime.now(UTC) if payout_status == "completed" else None,
     )
     db.add(payout)
     db.flush()
 
-    claim.status = "paid" if payout_status == "completed" else "capped"
+    claim.status = claim_status_val
 
+    action_str = "PROCESSED" if payout_status == "completed" else ("CAPPED" if payout_status == "capped" else "PENDING")
     db.add(
         AuditLog(
             entity_type="payout",
             entity_id=payout.id,
-            action="PROCESSED" if payout_status == "completed" else "CAPPED",
+            action=action_str,
             details=json.dumps(
                 {
                     "claim_id": claim.id,

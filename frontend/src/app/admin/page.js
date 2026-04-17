@@ -10,12 +10,14 @@ import Loader from "@/components/Loader";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/context/ToastContext";
 import {
+  approveAdminPayout,
   createAdminRider,
   extractApiErrorMessage,
   extractApiFieldErrors,
   fetchAdminClaims,
   fetchAdminFraudAlerts,
   fetchAdminMetrics,
+  fetchAdminPendingPayouts,
   fetchAdminRiders,
 } from "@/services/api";
 import {
@@ -95,6 +97,7 @@ export default function AdminDashboard() {
     claims: [],
     fraudAlerts: [],
     riders: [],
+    pendingPayouts: [],
   });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -108,13 +111,14 @@ export default function AdminDashboard() {
 
   const loadAdminData = useCallback(async () => {
     try {
-      const [metrics, claims, fraudAlerts, riders] = await Promise.all([
+      const [metrics, claims, fraudAlerts, riders, pendingPayouts] = await Promise.all([
         fetchAdminMetrics(),
         fetchAdminClaims(),
         fetchAdminFraudAlerts(),
         fetchAdminRiders(),
+        fetchAdminPendingPayouts(),
       ]);
-      setData({ metrics, claims, fraudAlerts, riders });
+      setData({ metrics, claims, fraudAlerts, riders, pendingPayouts });
       setLoadError("");
     } catch (err) {
       console.error("Admin data load failed", err);
@@ -233,9 +237,20 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleApprovePayout = async (payoutId) => {
+    try {
+      await approveAdminPayout(payoutId);
+      toast.success("Payout approved successfully.");
+      loadAdminData();
+    } catch (error) {
+      toast.error("Failed to approve payout.");
+      console.error(error);
+    }
+  };
+
   if (authLoading || loading) return <Loader fullScreen text="Loading Admin Dashboard..." />;
 
-  const { metrics, claims, fraudAlerts, riders } = data;
+  const { metrics, claims, fraudAlerts, riders, pendingPayouts } = data;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -458,6 +473,40 @@ export default function AdminDashboard() {
             )}
           </Card>
         </div>
+
+        <Card className="border-orange-200">
+          <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <FaExclamationCircle className="text-orange-500" /> Pending Payments Awaiting Review
+          </h3>
+          {pendingPayouts.length === 0 ? (
+            <p className="text-sm text-gray-500">No pending payments.</p>
+          ) : (
+            <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+              {pendingPayouts.map((payout) => (
+                <div key={payout.id} className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-orange-100 bg-orange-50 p-4">
+                  <div>
+                    <div className="font-bold text-orange-900 mb-1">
+                      {payout.rider_name} <span className="text-xs text-orange-700 font-medium">({payout.rider_zomato_id})</span>
+                    </div>
+                    <div className="text-sm text-orange-800">
+                      Zone: <span className="font-semibold">{payout.zone}</span> | URTS: <span className="font-semibold">{payout.effective_urts}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-orange-900 text-lg">₹{payout.amount}</p>
+                    <p className="text-xs text-orange-700">Requested: ₹{payout.loss_amount}</p>
+                  </div>
+                  <button 
+                    onClick={() => handleApprovePayout(payout.id)}
+                    className="shrink-0 bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold py-2 px-4 rounded-lg shadow-sm transition"
+                  >
+                    Approve Payout
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
 
         <div className="grid md:grid-cols-2 gap-6">
           <Card>
